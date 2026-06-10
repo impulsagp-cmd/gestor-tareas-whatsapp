@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Mi Gestor Personal</title>
+
+<style>
+body{
+    font-family:Arial;
+    max-width:1000px;
+    margin:auto;
+    padding:20px;
+}
+
+input, select, button{
+    padding:10px;
+    margin:5px;
+}
+
+button{
+    cursor:pointer;
+}
+
+.tarea{
+    border:1px solid #ccc;
+    padding:15px;
+    margin-top:10px;
+    border-radius:10px;
+}
+
+.completada{
+    background:#dff0d8;
+}
+
+#dashboard{
+    border:1px solid #ddd;
+    padding:15px;
+    margin-top:20px;
+    margin-bottom:20px;
+    border-radius:10px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>📋 Mi Gestor Personal</h1>
+
+<div style="margin-bottom:20px;">
+    <input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareas()">
+
+    <select id="filtroEstado" onchange="cargarTareas()">
+        <option value="todas">Todas</option>
+        <option value="pendiente">Pendientes</option>
+        <option value="completada">Completadas</option>
+    </select>
+</div>
+
+<input id="titulo" type="text" placeholder="Nueva tarea">
+
+<select id="prioridad">
+    <option value="alta">Alta</option>
+    <option value="media">Media</option>
+    <option value="baja">Baja</option>
+</select>
+
+<input type="date" id="fechaLimite">
+
+<button onclick="agregarTarea()">Agregar tarea</button>
+
+<div id="dashboard">
+    <h2>Dashboard</h2>
+    <div id="cumplimiento">Cumplimiento: 0%</div>
+    <div id="estadisticas"></div>
+</div>
+
+<h2>Tareas</h2>
+<div id="listaTareas"></div>
+
+<script>
+async function agregarTarea(){
+    const titulo = document.getElementById("titulo").value;
+    const prioridad = document.getElementById("prioridad").value;
+    const fechaLimite = document.getElementById("fechaLimite").value;
+
+    if(!titulo){
+        alert("Escribe una tarea");
+        return;
+    }
+
+    await fetch("/tareas", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({
+            titulo,
+            prioridad,
+            fechaLimite
+        })
+    });
+
+    document.getElementById("titulo").value = "";
+    document.getElementById("fechaLimite").value = "";
+
+    cargarTareas();
+    cargarCumplimiento();
+}
+
+async function completarTarea(id){
+    await fetch(`/tareas/${id}/completar`, {
+        method:"PUT"
+    });
+
+    cargarTareas();
+    cargarCumplimiento();
+}
+
+async function eliminarTarea(id){
+    if(!confirm("¿Eliminar tarea?")){
+        return;
+    }
+
+    await fetch(`/tareas/${id}`, {
+        method:"DELETE"
+    });
+
+    cargarTareas();
+    cargarCumplimiento();
+}
+
+async function cargarTareas(){
+    const respuesta = await fetch("/tareas");
+    const tareas = await respuesta.json();
+
+    let tareasFiltradas = [...tareas];
+
+    const textoBusqueda = document.getElementById("buscador").value.toLowerCase();
+    const filtroEstado = document.getElementById("filtroEstado").value;
+
+    if(textoBusqueda){
+        tareasFiltradas = tareasFiltradas.filter(t =>
+            t.titulo.toLowerCase().includes(textoBusqueda)
+        );
+    }
+
+    if(filtroEstado !== "todas"){
+        tareasFiltradas = tareasFiltradas.filter(t =>
+            t.estado === filtroEstado
+        );
+    }
+
+    const ordenPrioridad = {
+        alta: 1,
+        media: 2,
+        baja: 3
+    };
+
+    tareasFiltradas.sort((a,b) =>
+        ordenPrioridad[a.prioridad] - ordenPrioridad[b.prioridad]
+    );
+
+    const lista = document.getElementById("listaTareas");
+    lista.innerHTML = "";
+
+    tareasFiltradas.forEach(tarea => {
+        const div = document.createElement("div");
+
+        div.className =
+            tarea.estado === "completada"
+            ? "tarea completada"
+            : "tarea";
+
+        div.innerHTML = `
+            <strong>${tarea.titulo}</strong><br><br>
+
+            Prioridad: ${tarea.prioridad}<br>
+            Fecha límite: ${tarea.fechaLimite || "Sin fecha"}<br>
+            Estado: ${tarea.estado}<br><br>
+
+            ${
+                tarea.estado === "pendiente"
+                ? `<button onclick="completarTarea(${tarea.id})">Completar</button>`
+                : "✅ Terminada"
+            }
+
+            <button onclick="eliminarTarea(${tarea.id})">Eliminar</button>
+        `;
+
+        lista.appendChild(div);
+    });
+}
+
+async function cargarCumplimiento(){
+    const respuesta = await fetch("/cumplimiento");
+    const datos = await respuesta.json();
+
+    document.getElementById("cumplimiento").innerHTML =
+        `🎯 Cumplimiento: ${datos.cumplimiento}%`;
+
+    document.getElementById("estadisticas").innerHTML =
+        `
+        📋 Total: ${datos.total}<br>
+        ✅ Completadas: ${datos.completadas}<br>
+        ⏳ Pendientes: ${datos.pendientes}
+        `;
+}
+
+cargarTareas();
+cargarCumplimiento();
+</script>
+
+</body>
+</html>

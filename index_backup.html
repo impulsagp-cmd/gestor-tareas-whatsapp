@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Gestor de Tareas</title>
+</head>
+<body>
+
+  <h1>Mi gestor de tareas</h1>
+
+  <input id="titulo" type="text" placeholder="Escribe una tarea">
+  
+  <select id="prioridad">
+    <option value="alta">Alta</option>
+    <option value="media">Media</option>
+    <option value="baja">Baja</option>
+  </select>
+
+  <button onclick="agregarTarea()">Agregar tarea</button>
+
+  <h2>Tareas</h2>
+  <ul id="listaTareas"></ul>
+
+  <script>
+    async function agregarTarea() {
+      const titulo = document.getElementById("titulo").value;
+      const prioridad = document.getElementById("prioridad").value;
+
+      if (titulo.trim() === "") {
+        alert("Escribe una tarea");
+        return;
+      }
+
+      await fetch("http://localhost:3000/tareas", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          titulo: titulo,
+          prioridad: prioridad
+        })
+      });
+
+      document.getElementById("titulo").value = "";
+      cargarTareas();
+    }
+
+    async function cargarTareas() {
+      const respuesta = await fetch("http://localhost:3000/tareas");
+      const tareas = await respuesta.json();
+
+      const lista = document.getElementById("listaTareas");
+      lista.innerHTML = "";
+
+      tareas.forEach(tarea => {
+        const item = document.createElement("li");
+        item.textContent = `${tarea.titulo} - Prioridad: ${tarea.prioridad} - Estado: ${tarea.estado}`;
+        lista.appendChild(item);
+      });
+    }
+
+    cargarTareas();
+  </script>
+
+</body>
+</html>

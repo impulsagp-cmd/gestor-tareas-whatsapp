@@ -1,0 +1,16 @@
+[
+  {
+    "id": 1781120862282,
+    "titulo": "tarea prueba 1 mich",
+    "prioridad": "alta",
+    "estado": "completada"
+  },
+  {
+    "id": 1781121537105,
+    "titulo": "prueba 2",
+    "prioridad": "alta",
+    "fechaLimite": "2026-06-10",
+    "estado": "pendiente",
+    "fechaCreacion": "2026-06-10T19:58:57.105Z"
+  }
+]
