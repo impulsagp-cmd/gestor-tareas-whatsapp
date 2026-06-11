@@ -2,109 +2,195 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Mi Gestor Personal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestor Personal</title>
 
 <style>
+*{
+    box-sizing:border-box;
+}
+
 body{
-    font-family:Arial;
-    max-width:1000px;
+    font-family:Arial, sans-serif;
+    margin:0;
+    background:#f4f6f8;
+    color:#222;
+}
+
+.app{
+    max-width:520px;
     margin:auto;
-    padding:20px;
+    padding:15px;
+    padding-bottom:90px;
+}
+
+h1{
+    font-size:24px;
+    margin:10px 0 20px;
+}
+
+.card{
+    background:white;
+    border-radius:18px;
+    padding:16px;
+    margin-bottom:15px;
+    box-shadow:0 3px 10px rgba(0,0,0,0.08);
 }
 
 input, select, button{
-    padding:10px;
-    margin:5px;
+    width:100%;
+    padding:14px;
+    margin-top:8px;
+    border-radius:12px;
+    border:1px solid #ddd;
+    font-size:16px;
 }
 
 button{
-    cursor:pointer;
+    background:#2563eb;
+    color:white;
+    border:none;
+    font-weight:bold;
+}
+
+.btn-danger{
+    background:#dc2626;
+}
+
+.btn-success{
+    background:#16a34a;
 }
 
 .tarea{
-    border:1px solid #ccc;
-    padding:15px;
-    margin-top:10px;
-    border-radius:10px;
+    background:white;
+    border-radius:18px;
+    padding:16px;
+    margin-bottom:14px;
+    box-shadow:0 3px 10px rgba(0,0,0,0.08);
 }
 
 .completada{
-    background:#dff0d8;
+    border-left:8px solid #16a34a;
 }
 
 .enproceso{
-    background:#fff3cd;
+    border-left:8px solid #f59e0b;
 }
 
-#dashboard, #usuariosBox{
-    border:1px solid #ddd;
-    padding:15px;
-    margin-top:20px;
-    margin-bottom:20px;
-    border-radius:10px;
+.pendiente{
+    border-left:8px solid #2563eb;
+}
+
+.badge{
+    display:inline-block;
+    padding:5px 10px;
+    border-radius:20px;
+    background:#eef2ff;
+    margin:4px 4px 4px 0;
+    font-size:13px;
+}
+
+.dashboard-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+    margin-top:10px;
+}
+
+.metric{
+    background:#f8fafc;
+    padding:12px;
+    border-radius:14px;
+    text-align:center;
+}
+
+.metric strong{
+    display:block;
+    font-size:22px;
+}
+
+.usuario-card{
+    background:#f8fafc;
+    padding:12px;
+    border-radius:14px;
+    margin-top:10px;
+}
+
+.bottom-space{
+    height:30px;
 }
 </style>
 </head>
 
 <body>
 
-<h1>📋 Mi Gestor Personal</h1>
+<div class="app">
 
-<div id="usuariosBox">
-    <h2>Usuarios</h2>
+<h1>📋 Gestor Personal</h1>
 
+<div class="card">
+    <h3>👤 Usuarios</h3>
     <input id="nuevoUsuario" type="text" placeholder="Nombre del usuario">
-
-    <button onclick="agregarUsuario()">
-        Agregar usuario
-    </button>
+    <button onclick="agregarUsuario()">Agregar usuario</button>
 </div>
 
-<input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareas()">
+<div class="card">
+    <h3>➕ Nueva tarea</h3>
 
-<select id="filtroEstado" onchange="cargarTareas()">
-    <option value="todas">Todas</option>
-    <option value="pendiente">Pendientes</option>
-    <option value="en proceso">En proceso</option>
-    <option value="completada">Completadas</option>
-</select>
+    <input id="titulo" type="text" placeholder="Escribe la tarea">
 
-<select id="filtroUsuario" onchange="cargarTareas()">
-    <option value="todos">Todos los usuarios</option>
-</select>
+    <select id="prioridad">
+        <option value="alta">Prioridad alta</option>
+        <option value="media">Prioridad media</option>
+        <option value="baja">Prioridad baja</option>
+    </select>
 
-<br>
+    <input type="date" id="fechaLimite">
 
-<input id="titulo" type="text" placeholder="Nueva tarea">
+    <select id="usuarioAsignado">
+        <option value="">Sin asignar</option>
+    </select>
 
-<select id="prioridad">
-    <option value="alta">Alta</option>
-    <option value="media">Media</option>
-    <option value="baja">Baja</option>
-</select>
+    <button onclick="agregarTarea()">Guardar tarea</button>
+</div>
 
-<input type="date" id="fechaLimite">
+<div class="card">
+    <h3>📊 Dashboard</h3>
 
-<select id="usuarioAsignado">
-    <option value="">Sin asignar</option>
-</select>
-
-<button onclick="agregarTarea()">Agregar tarea</button>
-
-<div id="dashboard">
-    <h2>Dashboard</h2>
     <select id="periodoDashboard" onchange="cargarCumplimiento()">
-    <option value="hoy">Hoy</option>
-    <option value="semana">Esta semana</option>
-    <option value="mes">Este mes</option>
-    <option value="todo">Todo</option>
-</select>
-    <div id="cumplimiento">Cumplimiento: 0%</div>
+        <option value="hoy">Hoy</option>
+        <option value="semana">Esta semana</option>
+        <option value="mes">Este mes</option>
+        <option value="todo">Todo</option>
+    </select>
+
+    <div id="cumplimiento"></div>
     <div id="estadisticas"></div>
 </div>
 
-<h2>Tareas</h2>
+<div class="card">
+    <h3>🔎 Filtros</h3>
+
+    <input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareas()">
+
+    <select id="filtroEstado" onchange="cargarTareas()">
+        <option value="todas">Todas</option>
+        <option value="pendiente">Pendientes</option>
+        <option value="en proceso">En proceso</option>
+        <option value="completada">Completadas</option>
+    </select>
+
+    <select id="filtroUsuario" onchange="cargarTareas()">
+        <option value="todos">Todos los usuarios</option>
+    </select>
+</div>
+
+<h3>📝 Tareas</h3>
 <div id="listaTareas"></div>
+
+<div class="bottom-space"></div>
+
+</div>
 
 <script>
 let todasLasTareas = [];
@@ -121,17 +207,8 @@ async function cargarUsuarios(){
     filtroUsuario.innerHTML = `<option value="todos">Todos los usuarios</option>`;
 
     usuarios.forEach(usuario => {
-        usuarioAsignado.innerHTML += `
-            <option value="${usuario.id}">
-                ${usuario.nombre}
-            </option>
-        `;
-
-        filtroUsuario.innerHTML += `
-            <option value="${usuario.id}">
-                ${usuario.nombre}
-            </option>
-        `;
+        usuarioAsignado.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
+        filtroUsuario.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
     });
 }
 
@@ -169,12 +246,7 @@ async function agregarTarea(){
     await fetch("/tareas", {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({
-            titulo,
-            prioridad,
-            fechaLimite,
-            usuarioId
-        })
+        body:JSON.stringify({ titulo, prioridad, fechaLimite, usuarioId })
     });
 
     document.getElementById("titulo").value = "";
@@ -195,13 +267,7 @@ async function actualizarTarea(id){
     await fetch(`/tareas/${id}`, {
         method:"PUT",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({
-            titulo,
-            prioridad,
-            estado,
-            fechaLimite,
-            usuarioId
-        })
+        body:JSON.stringify({ titulo, prioridad, estado, fechaLimite, usuarioId })
     });
 
     cargarTareas();
@@ -209,13 +275,9 @@ async function actualizarTarea(id){
 }
 
 async function eliminarTarea(id){
-    if(!confirm("¿Eliminar tarea?")){
-        return;
-    }
+    if(!confirm("¿Eliminar tarea?")) return;
 
-    await fetch(`/tareas/${id}`, {
-        method:"DELETE"
-    });
+    await fetch(`/tareas/${id}`, { method:"DELETE" });
 
     cargarTareas();
     cargarCumplimiento();
@@ -226,7 +288,6 @@ async function cargarTareas(){
     const tareas = await respuesta.json();
 
     todasLasTareas = tareas;
-
     let tareasFiltradas = [...tareas];
 
     const textoBusqueda = document.getElementById("buscador").value.toLowerCase();
@@ -240,22 +301,14 @@ async function cargarTareas(){
     }
 
     if(filtroEstado !== "todas"){
-        tareasFiltradas = tareasFiltradas.filter(t =>
-            t.estado === filtroEstado
-        );
+        tareasFiltradas = tareasFiltradas.filter(t => t.estado === filtroEstado);
     }
 
     if(filtroUsuario !== "todos"){
-        tareasFiltradas = tareasFiltradas.filter(t =>
-            String(t.usuario_id) === filtroUsuario
-        );
+        tareasFiltradas = tareasFiltradas.filter(t => String(t.usuario_id) === filtroUsuario);
     }
 
-    const ordenPrioridad = {
-        alta: 1,
-        media: 2,
-        baja: 3
-    };
+    const ordenPrioridad = { alta:1, media:2, baja:3 };
 
     tareasFiltradas.sort((a,b) =>
         ordenPrioridad[a.prioridad] - ordenPrioridad[b.prioridad]
@@ -272,11 +325,9 @@ async function cargarTareas(){
             ? "tarea completada"
             : tarea.estado === "en proceso"
             ? "tarea enproceso"
-            : "tarea";
+            : "tarea pendiente";
 
-        let opcionesUsuarios = `
-            <option value="">Sin asignar</option>
-        `;
+        let opcionesUsuarios = `<option value="">Sin asignar</option>`;
 
         usuarios.forEach(usuario => {
             opcionesUsuarios += `
@@ -287,8 +338,6 @@ async function cargarTareas(){
         });
 
         div.innerHTML = `
-            <strong>Editar tarea</strong><br><br>
-
             <input id="titulo-${tarea.id}" value="${tarea.titulo}">
 
             <select id="prioridad-${tarea.id}">
@@ -309,14 +358,20 @@ async function cargarTareas(){
                 ${opcionesUsuarios}
             </select>
 
-            <br><br>
+            <div>
+                <span class="badge">👤 ${tarea.usuario_nombre || "Sin asignar"}</span>
+                <span class="badge">📅 ${tarea.fecha_limite || "Sin fecha"}</span>
+                <span class="badge">⚡ ${tarea.prioridad}</span>
+                <span class="badge">📌 ${tarea.estado}</span>
+            </div>
 
-            Asignado a: ${tarea.usuario_nombre || "Sin asignar"}<br>
-            Estado actual: ${tarea.estado}<br>
-            Fecha límite: ${tarea.fecha_limite || "Sin fecha"}<br><br>
+            <button class="btn-success" onclick="actualizarTarea(${tarea.id})">
+                Guardar cambios
+            </button>
 
-            <button onclick="actualizarTarea(${tarea.id})">Guardar cambios</button>
-            <button onclick="eliminarTarea(${tarea.id})">Eliminar</button>
+            <button class="btn-danger" onclick="eliminarTarea(${tarea.id})">
+                Eliminar
+            </button>
         `;
 
         lista.appendChild(div);
@@ -330,32 +385,32 @@ async function cargarCumplimiento(){
     const datos = await respuesta.json();
 
     document.getElementById("cumplimiento").innerHTML =
-        `🎯 Cumplimiento ${periodo}: ${datos.general.cumplimiento}%`;
+        `<h2>🎯 ${datos.general.cumplimiento}%</h2>`;
 
     let html = `
-        <h3>Dashboard general</h3>
-        📋 Programadas: ${datos.general.total}<br>
-        ✅ Completadas: ${datos.general.completadas}<br>
-        🔄 En proceso: ${datos.general.enProceso}<br>
-        ⏳ Pendientes: ${datos.general.pendientes}<br>
-        🎯 Cumplimiento: ${datos.general.cumplimiento}%<br><br>
+        <div class="dashboard-grid">
+            <div class="metric"><strong>${datos.general.total}</strong>Programadas</div>
+            <div class="metric"><strong>${datos.general.completadas}</strong>Completadas</div>
+            <div class="metric"><strong>${datos.general.enProceso}</strong>En proceso</div>
+            <div class="metric"><strong>${datos.general.pendientes}</strong>Pendientes</div>
+        </div>
 
-        <h3>Dashboard por usuario</h3>
+        <h3>Por usuario</h3>
     `;
 
-    if (datos.usuarios.length === 0) {
-        html += `No hay tareas programadas para este periodo.`;
+    if(datos.usuarios.length === 0){
+        html += `<p>No hay tareas para este periodo.</p>`;
     }
 
     datos.usuarios.forEach(usuario => {
         html += `
-            <div style="border:1px solid #ccc; padding:10px; margin:10px 0; border-radius:8px;">
+            <div class="usuario-card">
                 <strong>${usuario.usuario}</strong><br>
+                🎯 Cumplimiento: ${usuario.cumplimiento}%<br>
                 📋 Programadas: ${usuario.total}<br>
                 ✅ Completadas: ${usuario.completadas}<br>
                 🔄 En proceso: ${usuario.enProceso}<br>
-                ⏳ Pendientes: ${usuario.pendientes}<br>
-                🎯 Cumplimiento: ${usuario.cumplimiento}%
+                ⏳ Pendientes: ${usuario.pendientes}
             </div>
         `;
     });
