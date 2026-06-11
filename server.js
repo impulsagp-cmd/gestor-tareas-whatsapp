@@ -21,10 +21,19 @@ app.get("/", (req, res) => {
 });
 
 app.get("/tareas", async (req, res) => {
-    const resultado = await pool.query(
-        "SELECT * FROM tareas ORDER BY id DESC"
-    );
-    res.json(resultado.rows);
+    try {
+        const resultado = await pool.query(
+            "SELECT * FROM tareas ORDER BY id DESC"
+        );
+
+        res.json(resultado.rows);
+    } catch (error) {
+        console.error("ERROR EN /tareas:", error.message);
+
+        res.status(500).json({
+            error: error.message
+        });
+    }
 });
 
 app.post("/tareas", async (req, res) => {
