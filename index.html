@@ -202,6 +202,7 @@ hr{
         <div class="card">
             <h3>👤 Usuarios</h3>
             <input id="nuevoUsuario" type="text" placeholder="Nombre del usuario">
+            <input id="telefonoUsuario" type="text" placeholder="WhatsApp: 5216691234567">
             <button onclick="agregarUsuario()">Agregar usuario</button>
         </div>
 
@@ -336,6 +337,7 @@ function mostrarModulo(modulo){
 
 async function agregarUsuario(){
     const nombre = document.getElementById("nuevoUsuario").value;
+    const telefono = document.getElementById("telefonoUsuario").value;
 
     if(!nombre){
         alert("Escribe el nombre del usuario");
@@ -345,10 +347,14 @@ async function agregarUsuario(){
     await fetch("/usuarios", {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ nombre })
+        body:JSON.stringify({
+            nombre,
+            telefono
+        })
     });
 
     document.getElementById("nuevoUsuario").value = "";
+    document.getElementById("telefonoUsuario").value = "";
 
     await cargarUsuarios();
     await cargarTareasEquipo();

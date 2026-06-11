@@ -26,7 +26,6 @@ function calcularMetricas(tareas) {
     const enProceso = tareas.filter(t => t.estado === "en proceso").length;
     const pendientes = tareas.filter(t => t.estado === "pendiente").length;
     const cumplimiento = total === 0 ? 0 : Math.round((completadas / total) * 100);
-
     return { total, completadas, enProceso, pendientes, cumplimiento };
 }
 
@@ -36,12 +35,9 @@ function filtrarPorPeriodo(tareas, periodo) {
 
     return tareas.filter(tarea => {
         if (!tarea.fecha_limite) return periodo === "todo";
-
         const fecha = new Date(tarea.fecha_limite + "T00:00:00");
 
-        if (periodo === "hoy") {
-            return fecha.getTime() === hoy.getTime();
-        }
+        if (periodo === "hoy") return fecha.getTime() === hoy.getTime();
 
         if (periodo === "semana") {
             const inicioSemana = new Date(hoy);
@@ -64,14 +60,40 @@ function filtrarPorPeriodo(tareas, periodo) {
     });
 }
 
-/* USUARIOS */
+async function crearNotificacionAsignacion(tarea) {
+    if (!tarea.usuario_id) return;
+
+    const usuario = await pool.query(
+        "SELECT * FROM usuarios WHERE id = $1",
+        [tarea.usuario_id]
+    );
+
+    if (usuario.rows.length === 0) return;
+
+    const u = usuario.rows[0];
+
+    if (!u.telefono) return;
+
+    const mensaje = `Hola ${u.nombre}. Te asignaron una tarea:
+
+${tarea.titulo}
+
+Prioridad: ${tarea.prioridad}
+Fecha límite: ${tarea.fecha_limite || "Sin fecha"}
+Estado: ${tarea.estado}`;
+
+    await pool.query(
+        `INSERT INTO notificaciones (usuario_id, telefono, mensaje)
+         VALUES ($1, $2, $3)`,
+        [u.id, u.telefono, mensaje]
+    );
+}
 
 app.get("/usuarios", async (req, res) => {
     try {
         const resultado = await pool.query(
             "SELECT * FROM usuarios ORDER BY nombre ASC"
         );
-
         res.json(resultado.rows);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -80,11 +102,13 @@ app.get("/usuarios", async (req, res) => {
 
 app.post("/usuarios", async (req, res) => {
     try {
-        const { nombre, rol } = req.body;
+        const { nombre, telefono, rol } = req.body;
 
         const resultado = await pool.query(
-            "INSERT INTO usuarios (nombre, rol) VALUES ($1, $2) RETURNING *",
-            [nombre, rol || "usuario"]
+            `INSERT INTO usuarios (nombre, telefono, rol)
+             VALUES ($1, $2, $3)
+             RETURNING *`,
+            [nombre, telefono || "", rol || "usuario"]
         );
 
         res.json(resultado.rows[0]);
@@ -93,7 +117,26 @@ app.post("/usuarios", async (req, res) => {
     }
 });
 
-/* TAREAS */
+app.put("/usuarios/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { nombre, telefono, rol } = req.body;
+
+        const resultado = await pool.query(
+            `UPDATE usuarios
+             SET nombre = $1,
+                 telefono = $2,
+                 rol = $3
+             WHERE id = $4
+             RETURNING *`,
+            [nombre, telefono || "", rol || "usuario", id]
+        );
+
+        res.json(resultado.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 app.get("/tareas", async (req, res) => {
     try {
@@ -146,6 +189,8 @@ app.post("/tareas", async (req, res) => {
             ]
         );
 
+        await crearNotificacionAsignacion(resultado.rows[0]);
+
         res.json(resultado.rows[0]);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -156,6 +201,11 @@ app.put("/tareas/:id", async (req, res) => {
     try {
         const { id } = req.params;
         const { titulo, prioridad, estado, fechaLimite, usuarioId } = req.body;
+
+        const anterior = await pool.query(
+            "SELECT * FROM tareas WHERE id = $1",
+            [id]
+        );
 
         const resultado = await pool.query(
             `UPDATE tareas
@@ -175,6 +225,13 @@ app.put("/tareas/:id", async (req, res) => {
                 id
             ]
         );
+
+        if (
+            anterior.rows.length > 0 &&
+            String(anterior.rows[0].usuario_id || "") !== String(usuarioId || "")
+        ) {
+            await crearNotificacionAsignacion(resultado.rows[0]);
+        }
 
         res.json(resultado.rows[0]);
     } catch (error) {
@@ -196,8 +253,6 @@ app.delete("/tareas/:id", async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
-/* DASHBOARD PERSONAL */
 
 app.get("/mi-dashboard/:usuarioId", async (req, res) => {
     try {
@@ -226,8 +281,6 @@ app.get("/mi-dashboard/:usuarioId", async (req, res) => {
     }
 });
 
-/* DASHBOARD GENERAL */
-
 app.get("/dashboard", async (req, res) => {
     try {
         const periodo = req.query.periodo || "hoy";
@@ -245,11 +298,7 @@ app.get("/dashboard", async (req, res) => {
 
         tareasFiltradas.forEach(tarea => {
             const nombre = tarea.usuario_nombre || "Sin asignar";
-
-            if (!agrupado[nombre]) {
-                agrupado[nombre] = [];
-            }
-
+            if (!agrupado[nombre]) agrupado[nombre] = [];
             agrupado[nombre].push(tarea);
         });
 
@@ -269,7 +318,32 @@ app.get("/dashboard", async (req, res) => {
     }
 });
 
-/* RESPALDOS */
+app.get("/notificaciones/pendientes", async (req, res) => {
+    try {
+        const resultado = await pool.query(
+            "SELECT * FROM notificaciones WHERE estado = 'pendiente' ORDER BY id ASC"
+        );
+
+        res.json(resultado.rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put("/notificaciones/:id/enviada", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        await pool.query(
+            "UPDATE notificaciones SET estado = 'enviada' WHERE id = $1",
+            [id]
+        );
+
+        res.json({ mensaje: "Notificación marcada como enviada" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 app.get("/respaldo/json", async (req, res) => {
     try {
@@ -282,10 +356,15 @@ app.get("/respaldo/json", async (req, res) => {
             ORDER BY tareas.id ASC
         `);
 
+        const notificaciones = await pool.query(
+            "SELECT * FROM notificaciones ORDER BY id ASC"
+        );
+
         const respaldo = {
             generado_en: new Date().toISOString(),
             usuarios: usuarios.rows,
-            tareas: tareas.rows
+            tareas: tareas.rows,
+            notificaciones: notificaciones.rows
         };
 
         const fecha = new Date().toISOString().slice(0, 10);
