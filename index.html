@@ -6,9 +6,7 @@
 <title>Gestor Personal</title>
 
 <style>
-*{
-    box-sizing:border-box;
-}
+*{ box-sizing:border-box; }
 
 body{
     font-family:Arial, sans-serif;
@@ -24,10 +22,7 @@ body{
     padding-bottom:90px;
 }
 
-h1{
-    font-size:24px;
-    margin:10px 0 20px;
-}
+h1{ font-size:24px; margin:10px 0 20px; }
 
 .card{
     background:white;
@@ -53,13 +48,10 @@ button{
     font-weight:bold;
 }
 
-.btn-danger{
-    background:#dc2626;
-}
-
-.btn-success{
-    background:#16a34a;
-}
+.btn-danger{ background:#dc2626; }
+.btn-success{ background:#16a34a; }
+.btn-secondary{ background:#475569; }
+.btn-warning{ background:#f59e0b; color:#111; }
 
 .tarea{
     background:white;
@@ -69,17 +61,9 @@ button{
     box-shadow:0 3px 10px rgba(0,0,0,0.08);
 }
 
-.completada{
-    border-left:8px solid #16a34a;
-}
-
-.enproceso{
-    border-left:8px solid #f59e0b;
-}
-
-.pendiente{
-    border-left:8px solid #2563eb;
-}
+.completada{ border-left:8px solid #16a34a; }
+.enproceso{ border-left:8px solid #f59e0b; }
+.pendiente{ border-left:8px solid #2563eb; }
 
 .badge{
     display:inline-block;
@@ -116,8 +100,26 @@ button{
     margin-top:10px;
 }
 
-.bottom-space{
-    height:30px;
+hr{
+    border:none;
+    border-top:1px solid #e5e7eb;
+    margin:15px 0;
+}
+
+.oculto{
+    display:none;
+}
+
+.nav{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:8px;
+    margin-bottom:15px;
+}
+
+.small-text{
+    color:#666;
+    font-size:14px;
 }
 </style>
 </head>
@@ -128,71 +130,128 @@ button{
 
 <h1>📋 Gestor Personal</h1>
 
-<div class="card">
-    <h3>👤 Usuarios</h3>
-    <input id="nuevoUsuario" type="text" placeholder="Nombre del usuario">
-    <button onclick="agregarUsuario()">Agregar usuario</button>
+<div id="pantallaLogin" class="card">
+    <h3>👋 Entrar</h3>
+    <p class="small-text">Selecciona tu usuario para ver tu información.</p>
+
+    <select id="loginUsuario">
+        <option value="">Selecciona tu usuario</option>
+    </select>
+
+    <button onclick="entrar()">Entrar</button>
 </div>
 
-<div class="card">
-    <h3>➕ Nueva tarea</h3>
+<div id="appPrincipal" class="oculto">
 
-    <input id="titulo" type="text" placeholder="Escribe la tarea">
+    <div class="card">
+        <h3 id="bienvenida">Mi panel</h3>
 
-    <select id="prioridad">
-        <option value="alta">Prioridad alta</option>
-        <option value="media">Prioridad media</option>
-        <option value="baja">Prioridad baja</option>
-    </select>
+        <div class="nav">
+            <button onclick="mostrarModulo('miPanel')">🏠 Mi panel</button>
+            <button class="btn-secondary" onclick="mostrarModulo('equipo')">👥 Equipo</button>
+        </div>
 
-    <input type="date" id="fechaLimite">
+        <button class="btn-warning" onclick="salir()">Cambiar usuario</button>
+    </div>
 
-    <select id="usuarioAsignado">
-        <option value="">Sin asignar</option>
-    </select>
+    <div id="moduloMiPanel">
 
-    <button onclick="agregarTarea()">Guardar tarea</button>
+        <div class="card">
+            <h3>📊 Mi cumplimiento</h3>
+
+            <select id="periodoMiPanel" onchange="cargarMiPanel()">
+                <option value="hoy">Hoy</option>
+                <option value="semana">Esta semana</option>
+                <option value="mes">Este mes</option>
+                <option value="todo">Todo</option>
+            </select>
+
+            <div id="miCumplimiento"></div>
+        </div>
+
+        <div class="card">
+            <h3>➕ Nueva tarea</h3>
+
+            <input id="titulo" type="text" placeholder="Escribe la tarea">
+
+            <select id="prioridad">
+                <option value="alta">Prioridad alta</option>
+                <option value="media">Prioridad media</option>
+                <option value="baja">Prioridad baja</option>
+            </select>
+
+            <input type="date" id="fechaLimite">
+
+            <select id="usuarioAsignado">
+                <option value="">Sin asignar</option>
+            </select>
+
+            <button onclick="agregarTarea()">Guardar tarea</button>
+        </div>
+
+        <h3>⏳ Mis tareas pendientes</h3>
+        <div id="misPendientes"></div>
+
+        <h3>📝 Mis tareas</h3>
+        <div id="misTareas"></div>
+
+    </div>
+
+    <div id="moduloEquipo" class="oculto">
+
+        <div class="card">
+            <h3>👤 Usuarios</h3>
+            <input id="nuevoUsuario" type="text" placeholder="Nombre del usuario">
+            <button onclick="agregarUsuario()">Agregar usuario</button>
+        </div>
+
+        <div class="card">
+            <h3>📊 Dashboard del equipo</h3>
+
+            <select id="periodoDashboard" onchange="cargarDashboardEquipo()">
+                <option value="hoy">Hoy</option>
+                <option value="semana">Esta semana</option>
+                <option value="mes">Este mes</option>
+                <option value="todo">Todo</option>
+            </select>
+
+            <div id="cumplimientoEquipo"></div>
+            <div id="estadisticasEquipo"></div>
+
+            <hr>
+
+            <button onclick="descargarRespaldoJSON()">💾 Descargar respaldo completo</button>
+            <button class="btn-secondary" onclick="descargarRespaldoCSV()">📊 Descargar tareas CSV</button>
+        </div>
+
+        <div class="card">
+            <h3>🔎 Revisar tareas</h3>
+
+            <input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareasEquipo()">
+
+            <select id="filtroEstado" onchange="cargarTareasEquipo()">
+                <option value="todas">Todas</option>
+                <option value="pendiente">Pendientes</option>
+                <option value="en proceso">En proceso</option>
+                <option value="completada">Completadas</option>
+            </select>
+
+            <select id="filtroUsuario" onchange="cargarTareasEquipo()">
+                <option value="todos">Todos los usuarios</option>
+            </select>
+        </div>
+
+        <h3>📝 Tareas del equipo</h3>
+        <div id="listaTareasEquipo"></div>
+
+    </div>
+
 </div>
-
-<div class="card">
-    <h3>📊 Dashboard</h3>
-
-    <select id="periodoDashboard" onchange="cargarCumplimiento()">
-        <option value="hoy">Hoy</option>
-        <option value="semana">Esta semana</option>
-        <option value="mes">Este mes</option>
-        <option value="todo">Todo</option>
-    </select>
-
-    <div id="cumplimiento"></div>
-    <div id="estadisticas"></div>
-</div>
-
-<div class="card">
-    <h3>🔎 Filtros</h3>
-
-    <input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareas()">
-
-    <select id="filtroEstado" onchange="cargarTareas()">
-        <option value="todas">Todas</option>
-        <option value="pendiente">Pendientes</option>
-        <option value="en proceso">En proceso</option>
-        <option value="completada">Completadas</option>
-    </select>
-
-    <select id="filtroUsuario" onchange="cargarTareas()">
-        <option value="todos">Todos los usuarios</option>
-    </select>
-</div>
-
-<h3>📝 Tareas</h3>
-<div id="listaTareas"></div>
-
-<div class="bottom-space"></div>
 
 </div>
 
 <script>
+let usuarioActual = null;
 let todasLasTareas = [];
 let usuarios = [];
 
@@ -200,16 +259,79 @@ async function cargarUsuarios(){
     const respuesta = await fetch("/usuarios");
     usuarios = await respuesta.json();
 
+    const loginUsuario = document.getElementById("loginUsuario");
     const usuarioAsignado = document.getElementById("usuarioAsignado");
     const filtroUsuario = document.getElementById("filtroUsuario");
 
+    loginUsuario.innerHTML = `<option value="">Selecciona tu usuario</option>`;
     usuarioAsignado.innerHTML = `<option value="">Sin asignar</option>`;
     filtroUsuario.innerHTML = `<option value="todos">Todos los usuarios</option>`;
 
     usuarios.forEach(usuario => {
+        loginUsuario.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
         usuarioAsignado.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
         filtroUsuario.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
     });
+
+    const usuarioGuardado = localStorage.getItem("usuarioActual");
+
+    if(usuarioGuardado){
+        const usuario = usuarios.find(u => String(u.id) === String(usuarioGuardado));
+        if(usuario){
+            usuarioActual = usuario;
+            mostrarApp();
+        }
+    }
+}
+
+function entrar(){
+    const id = document.getElementById("loginUsuario").value;
+
+    if(!id){
+        alert("Selecciona un usuario");
+        return;
+    }
+
+    usuarioActual = usuarios.find(u => String(u.id) === String(id));
+    localStorage.setItem("usuarioActual", id);
+
+    mostrarApp();
+}
+
+function salir(){
+    localStorage.removeItem("usuarioActual");
+    usuarioActual = null;
+
+    document.getElementById("pantallaLogin").classList.remove("oculto");
+    document.getElementById("appPrincipal").classList.add("oculto");
+}
+
+async function mostrarApp(){
+    document.getElementById("pantallaLogin").classList.add("oculto");
+    document.getElementById("appPrincipal").classList.remove("oculto");
+
+    document.getElementById("bienvenida").innerText =
+        `Hola, ${usuarioActual.nombre}`;
+
+    document.getElementById("usuarioAsignado").value = usuarioActual.id;
+
+    mostrarModulo("miPanel");
+
+    await cargarMiPanel();
+    await cargarTareasEquipo();
+    await cargarDashboardEquipo();
+}
+
+function mostrarModulo(modulo){
+    if(modulo === "miPanel"){
+        document.getElementById("moduloMiPanel").classList.remove("oculto");
+        document.getElementById("moduloEquipo").classList.add("oculto");
+    }else{
+        document.getElementById("moduloMiPanel").classList.add("oculto");
+        document.getElementById("moduloEquipo").classList.remove("oculto");
+        cargarDashboardEquipo();
+        cargarTareasEquipo();
+    }
 }
 
 async function agregarUsuario(){
@@ -229,7 +351,8 @@ async function agregarUsuario(){
     document.getElementById("nuevoUsuario").value = "";
 
     await cargarUsuarios();
-    await cargarTareas();
+    await cargarTareasEquipo();
+    await cargarDashboardEquipo();
 }
 
 async function agregarTarea(){
@@ -246,15 +369,21 @@ async function agregarTarea(){
     await fetch("/tareas", {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ titulo, prioridad, fechaLimite, usuarioId })
+        body:JSON.stringify({
+            titulo,
+            prioridad,
+            fechaLimite,
+            usuarioId
+        })
     });
 
     document.getElementById("titulo").value = "";
     document.getElementById("fechaLimite").value = "";
-    document.getElementById("usuarioAsignado").value = "";
+    document.getElementById("usuarioAsignado").value = usuarioActual.id;
 
-    cargarTareas();
-    cargarCumplimiento();
+    await cargarMiPanel();
+    await cargarTareasEquipo();
+    await cargarDashboardEquipo();
 }
 
 async function actualizarTarea(id){
@@ -267,11 +396,18 @@ async function actualizarTarea(id){
     await fetch(`/tareas/${id}`, {
         method:"PUT",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ titulo, prioridad, estado, fechaLimite, usuarioId })
+        body:JSON.stringify({
+            titulo,
+            prioridad,
+            estado,
+            fechaLimite,
+            usuarioId
+        })
     });
 
-    cargarTareas();
-    cargarCumplimiento();
+    await cargarMiPanel();
+    await cargarTareasEquipo();
+    await cargarDashboardEquipo();
 }
 
 async function eliminarTarea(id){
@@ -279,11 +415,80 @@ async function eliminarTarea(id){
 
     await fetch(`/tareas/${id}`, { method:"DELETE" });
 
-    cargarTareas();
-    cargarCumplimiento();
+    await cargarMiPanel();
+    await cargarTareasEquipo();
+    await cargarDashboardEquipo();
 }
 
-async function cargarTareas(){
+async function cargarMiPanel(){
+    if(!usuarioActual) return;
+
+    const periodo = document.getElementById("periodoMiPanel").value;
+
+    const respuestaDashboard = await fetch(`/mi-dashboard/${usuarioActual.id}?periodo=${periodo}`);
+    const datos = await respuestaDashboard.json();
+
+    document.getElementById("miCumplimiento").innerHTML = `
+        <h2>🎯 ${datos.metricas.cumplimiento}%</h2>
+
+        <div class="dashboard-grid">
+            <div class="metric"><strong>${datos.metricas.total}</strong>Programadas</div>
+            <div class="metric"><strong>${datos.metricas.completadas}</strong>Completadas</div>
+            <div class="metric"><strong>${datos.metricas.enProceso}</strong>En proceso</div>
+            <div class="metric"><strong>${datos.metricas.pendientes}</strong>Pendientes</div>
+        </div>
+    `;
+
+    const respuestaTareas = await fetch(`/tareas/usuario/${usuarioActual.id}`);
+    const tareas = await respuestaTareas.json();
+
+    const pendientes = tareas.filter(t => t.estado === "pendiente");
+    pintarTareas(pendientes, "misPendientes");
+
+    pintarTareas(tareas, "misTareas");
+}
+
+async function cargarDashboardEquipo(){
+    const periodo = document.getElementById("periodoDashboard").value;
+
+    const respuesta = await fetch(`/dashboard?periodo=${periodo}`);
+    const datos = await respuesta.json();
+
+    document.getElementById("cumplimientoEquipo").innerHTML =
+        `<h2>🎯 Equipo: ${datos.general.cumplimiento}%</h2>`;
+
+    let html = `
+        <div class="dashboard-grid">
+            <div class="metric"><strong>${datos.general.total}</strong>Programadas</div>
+            <div class="metric"><strong>${datos.general.completadas}</strong>Completadas</div>
+            <div class="metric"><strong>${datos.general.enProceso}</strong>En proceso</div>
+            <div class="metric"><strong>${datos.general.pendientes}</strong>Pendientes</div>
+        </div>
+
+        <h3>Por usuario</h3>
+    `;
+
+    if(datos.usuarios.length === 0){
+        html += `<p>No hay tareas para este periodo.</p>`;
+    }
+
+    datos.usuarios.forEach(usuario => {
+        html += `
+            <div class="usuario-card">
+                <strong>${usuario.usuario}</strong><br>
+                🎯 Cumplimiento: ${usuario.cumplimiento}%<br>
+                📋 Programadas: ${usuario.total}<br>
+                ✅ Completadas: ${usuario.completadas}<br>
+                🔄 En proceso: ${usuario.enProceso}<br>
+                ⏳ Pendientes: ${usuario.pendientes}
+            </div>
+        `;
+    });
+
+    document.getElementById("estadisticasEquipo").innerHTML = html;
+}
+
+async function cargarTareasEquipo(){
     const respuesta = await fetch("/tareas");
     const tareas = await respuesta.json();
 
@@ -308,16 +513,25 @@ async function cargarTareas(){
         tareasFiltradas = tareasFiltradas.filter(t => String(t.usuario_id) === filtroUsuario);
     }
 
+    pintarTareas(tareasFiltradas, "listaTareasEquipo");
+}
+
+function pintarTareas(tareas, contenedorId){
     const ordenPrioridad = { alta:1, media:2, baja:3 };
 
-    tareasFiltradas.sort((a,b) =>
+    tareas.sort((a,b) =>
         ordenPrioridad[a.prioridad] - ordenPrioridad[b.prioridad]
     );
 
-    const lista = document.getElementById("listaTareas");
+    const lista = document.getElementById(contenedorId);
     lista.innerHTML = "";
 
-    tareasFiltradas.forEach(tarea => {
+    if(tareas.length === 0){
+        lista.innerHTML = `<div class="card">No hay tareas.</div>`;
+        return;
+    }
+
+    tareas.forEach(tarea => {
         const div = document.createElement("div");
 
         div.className =
@@ -378,50 +592,16 @@ async function cargarTareas(){
     });
 }
 
-async function cargarCumplimiento(){
-    const periodo = document.getElementById("periodoDashboard").value;
+function descargarRespaldoJSON(){
+    window.location.href = "/respaldo/json";
+}
 
-    const respuesta = await fetch(`/dashboard?periodo=${periodo}`);
-    const datos = await respuesta.json();
-
-    document.getElementById("cumplimiento").innerHTML =
-        `<h2>🎯 ${datos.general.cumplimiento}%</h2>`;
-
-    let html = `
-        <div class="dashboard-grid">
-            <div class="metric"><strong>${datos.general.total}</strong>Programadas</div>
-            <div class="metric"><strong>${datos.general.completadas}</strong>Completadas</div>
-            <div class="metric"><strong>${datos.general.enProceso}</strong>En proceso</div>
-            <div class="metric"><strong>${datos.general.pendientes}</strong>Pendientes</div>
-        </div>
-
-        <h3>Por usuario</h3>
-    `;
-
-    if(datos.usuarios.length === 0){
-        html += `<p>No hay tareas para este periodo.</p>`;
-    }
-
-    datos.usuarios.forEach(usuario => {
-        html += `
-            <div class="usuario-card">
-                <strong>${usuario.usuario}</strong><br>
-                🎯 Cumplimiento: ${usuario.cumplimiento}%<br>
-                📋 Programadas: ${usuario.total}<br>
-                ✅ Completadas: ${usuario.completadas}<br>
-                🔄 En proceso: ${usuario.enProceso}<br>
-                ⏳ Pendientes: ${usuario.pendientes}
-            </div>
-        `;
-    });
-
-    document.getElementById("estadisticas").innerHTML = html;
+function descargarRespaldoCSV(){
+    window.location.href = "/respaldo/csv";
 }
 
 async function iniciar(){
     await cargarUsuarios();
-    await cargarTareas();
-    await cargarCumplimiento();
 }
 
 iniciar();

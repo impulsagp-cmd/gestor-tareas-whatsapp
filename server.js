@@ -20,93 +20,6 @@ app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
-app.get("/usuarios", async (req, res) => {
-    try {
-        const resultado = await pool.query("SELECT * FROM usuarios ORDER BY nombre ASC");
-        res.json(resultado.rows);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post("/usuarios", async (req, res) => {
-    try {
-        const { nombre } = req.body;
-        const resultado = await pool.query(
-            "INSERT INTO usuarios (nombre) VALUES ($1) RETURNING *",
-            [nombre]
-        );
-        res.json(resultado.rows[0]);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get("/tareas", async (req, res) => {
-    try {
-        const resultado = await pool.query(`
-            SELECT tareas.*, usuarios.nombre AS usuario_nombre
-            FROM tareas
-            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
-            ORDER BY tareas.id DESC
-        `);
-        res.json(resultado.rows);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.post("/tareas", async (req, res) => {
-    try {
-        const { titulo, prioridad, fechaLimite, usuarioId } = req.body;
-
-        const resultado = await pool.query(
-            `INSERT INTO tareas 
-            (titulo, prioridad, estado, fecha_limite, usuario_id)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING *`,
-            [titulo, prioridad || "media", "pendiente", fechaLimite || "", usuarioId || null]
-        );
-
-        res.json(resultado.rows[0]);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.put("/tareas/:id", async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { titulo, prioridad, estado, fechaLimite, usuarioId } = req.body;
-
-        const resultado = await pool.query(
-            `UPDATE tareas
-            SET titulo = $1,
-                prioridad = $2,
-                estado = $3,
-                fecha_limite = $4,
-                usuario_id = $5
-            WHERE id = $6
-            RETURNING *`,
-            [titulo, prioridad, estado, fechaLimite || "", usuarioId || null, id]
-        );
-
-        res.json(resultado.rows[0]);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.delete("/tareas/:id", async (req, res) => {
-    try {
-        const { id } = req.params;
-        await pool.query("DELETE FROM tareas WHERE id = $1", [id]);
-        res.json({ mensaje: "Tarea eliminada" });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 function calcularMetricas(tareas) {
     const total = tareas.length;
     const completadas = tareas.filter(t => t.estado === "completada").length;
@@ -151,6 +64,170 @@ function filtrarPorPeriodo(tareas, periodo) {
     });
 }
 
+/* USUARIOS */
+
+app.get("/usuarios", async (req, res) => {
+    try {
+        const resultado = await pool.query(
+            "SELECT * FROM usuarios ORDER BY nombre ASC"
+        );
+
+        res.json(resultado.rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post("/usuarios", async (req, res) => {
+    try {
+        const { nombre, rol } = req.body;
+
+        const resultado = await pool.query(
+            "INSERT INTO usuarios (nombre, rol) VALUES ($1, $2) RETURNING *",
+            [nombre, rol || "usuario"]
+        );
+
+        res.json(resultado.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* TAREAS */
+
+app.get("/tareas", async (req, res) => {
+    try {
+        const resultado = await pool.query(`
+            SELECT tareas.*, usuarios.nombre AS usuario_nombre
+            FROM tareas
+            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+            ORDER BY tareas.id DESC
+        `);
+
+        res.json(resultado.rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/tareas/usuario/:usuarioId", async (req, res) => {
+    try {
+        const { usuarioId } = req.params;
+
+        const resultado = await pool.query(`
+            SELECT tareas.*, usuarios.nombre AS usuario_nombre
+            FROM tareas
+            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+            WHERE tareas.usuario_id = $1
+            ORDER BY tareas.id DESC
+        `, [usuarioId]);
+
+        res.json(resultado.rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post("/tareas", async (req, res) => {
+    try {
+        const { titulo, prioridad, fechaLimite, usuarioId } = req.body;
+
+        const resultado = await pool.query(
+            `INSERT INTO tareas 
+            (titulo, prioridad, estado, fecha_limite, usuario_id)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *`,
+            [
+                titulo,
+                prioridad || "media",
+                "pendiente",
+                fechaLimite || "",
+                usuarioId || null
+            ]
+        );
+
+        res.json(resultado.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.put("/tareas/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { titulo, prioridad, estado, fechaLimite, usuarioId } = req.body;
+
+        const resultado = await pool.query(
+            `UPDATE tareas
+            SET titulo = $1,
+                prioridad = $2,
+                estado = $3,
+                fecha_limite = $4,
+                usuario_id = $5
+            WHERE id = $6
+            RETURNING *`,
+            [
+                titulo,
+                prioridad,
+                estado,
+                fechaLimite || "",
+                usuarioId || null,
+                id
+            ]
+        );
+
+        res.json(resultado.rows[0]);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.delete("/tareas/:id", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        await pool.query(
+            "DELETE FROM tareas WHERE id = $1",
+            [id]
+        );
+
+        res.json({ mensaje: "Tarea eliminada" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* DASHBOARD PERSONAL */
+
+app.get("/mi-dashboard/:usuarioId", async (req, res) => {
+    try {
+        const { usuarioId } = req.params;
+        const periodo = req.query.periodo || "hoy";
+
+        const resultado = await pool.query(`
+            SELECT tareas.*, usuarios.nombre AS usuario_nombre
+            FROM tareas
+            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+            WHERE tareas.usuario_id = $1
+        `, [usuarioId]);
+
+        const tareasPeriodo = filtrarPorPeriodo(resultado.rows, periodo);
+        const metricas = calcularMetricas(tareasPeriodo);
+        const pendientes = tareasPeriodo.filter(t => t.estado === "pendiente");
+
+        res.json({
+            periodo,
+            metricas,
+            pendientes
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* DASHBOARD GENERAL */
+
 app.get("/dashboard", async (req, res) => {
     try {
         const periodo = req.query.periodo || "hoy";
@@ -162,7 +239,6 @@ app.get("/dashboard", async (req, res) => {
         `);
 
         const tareasFiltradas = filtrarPorPeriodo(resultado.rows, periodo);
-
         const general = calcularMetricas(tareasFiltradas);
 
         const agrupado = {};
@@ -187,6 +263,76 @@ app.get("/dashboard", async (req, res) => {
             general,
             usuarios
         });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* RESPALDOS */
+
+app.get("/respaldo/json", async (req, res) => {
+    try {
+        const usuarios = await pool.query("SELECT * FROM usuarios ORDER BY id ASC");
+
+        const tareas = await pool.query(`
+            SELECT tareas.*, usuarios.nombre AS usuario_nombre
+            FROM tareas
+            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+            ORDER BY tareas.id ASC
+        `);
+
+        const respaldo = {
+            generado_en: new Date().toISOString(),
+            usuarios: usuarios.rows,
+            tareas: tareas.rows
+        };
+
+        const fecha = new Date().toISOString().slice(0, 10);
+
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="respaldo_gestor_${fecha}.json"`
+        );
+
+        res.send(JSON.stringify(respaldo, null, 2));
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/respaldo/csv", async (req, res) => {
+    try {
+        const resultado = await pool.query(`
+            SELECT 
+                tareas.id,
+                tareas.titulo,
+                tareas.prioridad,
+                tareas.estado,
+                tareas.fecha_limite,
+                usuarios.nombre AS usuario_nombre
+            FROM tareas
+            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+            ORDER BY tareas.id ASC
+        `);
+
+        let csv = "id,titulo,prioridad,estado,fecha_limite,usuario\n";
+
+        resultado.rows.forEach(t => {
+            csv += `"${t.id}","${t.titulo}","${t.prioridad}","${t.estado}","${t.fecha_limite || ""}","${t.usuario_nombre || "Sin asignar"}"\n`;
+        });
+
+        const fecha = new Date().toISOString().slice(0, 10);
+
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="tareas_${fecha}.csv"`
+        );
+
+        res.send(csv);
 
     } catch (error) {
         res.status(500).json({ error: error.message });
