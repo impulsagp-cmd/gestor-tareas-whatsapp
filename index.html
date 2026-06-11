@@ -204,6 +204,9 @@ hr{
             <input id="nuevoUsuario" type="text" placeholder="Nombre del usuario">
             <input id="telefonoUsuario" type="text" placeholder="WhatsApp: 5216691234567">
             <button onclick="agregarUsuario()">Agregar usuario</button>
+            <hr>
+            <h4>Usuarios registrados</h4>
+            <div id="listaUsuarios"></div>
         </div>
 
         <div class="card">
@@ -263,6 +266,7 @@ async function cargarUsuarios(){
     const loginUsuario = document.getElementById("loginUsuario");
     const usuarioAsignado = document.getElementById("usuarioAsignado");
     const filtroUsuario = document.getElementById("filtroUsuario");
+    const listaUsuarios = document.getElementById("listaUsuarios");
 
     loginUsuario.innerHTML = `<option value="">Selecciona tu usuario</option>`;
     usuarioAsignado.innerHTML = `<option value="">Sin asignar</option>`;
@@ -274,9 +278,35 @@ async function cargarUsuarios(){
         filtroUsuario.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
     });
 
+    if(listaUsuarios){
+        listaUsuarios.innerHTML = "";
+
+        usuarios.forEach(usuario => {
+            listaUsuarios.innerHTML += `
+                <div class="usuario-card">
+                    <input 
+                        id="usuario-nombre-${usuario.id}" 
+                        value="${usuario.nombre || ""}" 
+                        placeholder="Nombre"
+                    >
+
+                    <input 
+                        id="usuario-telefono-${usuario.id}" 
+                        value="${usuario.telefono || ""}" 
+                        placeholder="WhatsApp: 5216691234567"
+                    >
+
+                    <button onclick="actualizarUsuario(${usuario.id})">
+                        Guardar usuario
+                    </button>
+                </div>
+            `;
+        });
+    }
+
     const usuarioGuardado = localStorage.getItem("usuarioActual");
 
-    if(usuarioGuardado){
+    if(usuarioGuardado && !usuarioActual){
         const usuario = usuarios.find(u => String(u.id) === String(usuarioGuardado));
         if(usuario){
             usuarioActual = usuario;
@@ -333,6 +363,30 @@ function mostrarModulo(modulo){
         cargarDashboardEquipo();
         cargarTareasEquipo();
     }
+}
+
+async function actualizarUsuario(id){
+    const nombre = document.getElementById(`usuario-nombre-${id}`).value;
+    const telefono = document.getElementById(`usuario-telefono-${id}`).value;
+
+    if(!nombre){
+        alert("El usuario necesita nombre");
+        return;
+    }
+
+    await fetch(`/usuarios/${id}`, {
+        method:"PUT",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({
+            nombre,
+            telefono,
+            rol:"usuario"
+        })
+    });
+
+    alert("Usuario actualizado");
+
+    await cargarUsuarios();
 }
 
 async function agregarUsuario(){
