@@ -93,6 +93,12 @@ button{
 
 <div id="dashboard">
     <h2>Dashboard</h2>
+    <select id="periodoDashboard" onchange="cargarCumplimiento()">
+    <option value="hoy">Hoy</option>
+    <option value="semana">Esta semana</option>
+    <option value="mes">Este mes</option>
+    <option value="todo">Todo</option>
+</select>
     <div id="cumplimiento">Cumplimiento: 0%</div>
     <div id="estadisticas"></div>
 </div>
@@ -318,19 +324,43 @@ async function cargarTareas(){
 }
 
 async function cargarCumplimiento(){
-    const respuesta = await fetch("/cumplimiento");
+    const periodo = document.getElementById("periodoDashboard").value;
+
+    const respuesta = await fetch(`/dashboard?periodo=${periodo}`);
     const datos = await respuesta.json();
 
     document.getElementById("cumplimiento").innerHTML =
-        `🎯 Cumplimiento: ${datos.cumplimiento}%`;
+        `🎯 Cumplimiento ${periodo}: ${datos.general.cumplimiento}%`;
 
-    document.getElementById("estadisticas").innerHTML =
-        `
-        📋 Total: ${datos.total}<br>
-        ✅ Completadas: ${datos.completadas}<br>
-        🔄 En proceso: ${datos.enProceso}<br>
-        ⏳ Pendientes: ${datos.pendientes}
+    let html = `
+        <h3>Dashboard general</h3>
+        📋 Programadas: ${datos.general.total}<br>
+        ✅ Completadas: ${datos.general.completadas}<br>
+        🔄 En proceso: ${datos.general.enProceso}<br>
+        ⏳ Pendientes: ${datos.general.pendientes}<br>
+        🎯 Cumplimiento: ${datos.general.cumplimiento}%<br><br>
+
+        <h3>Dashboard por usuario</h3>
+    `;
+
+    if (datos.usuarios.length === 0) {
+        html += `No hay tareas programadas para este periodo.`;
+    }
+
+    datos.usuarios.forEach(usuario => {
+        html += `
+            <div style="border:1px solid #ccc; padding:10px; margin:10px 0; border-radius:8px;">
+                <strong>${usuario.usuario}</strong><br>
+                📋 Programadas: ${usuario.total}<br>
+                ✅ Completadas: ${usuario.completadas}<br>
+                🔄 En proceso: ${usuario.enProceso}<br>
+                ⏳ Pendientes: ${usuario.pendientes}<br>
+                🎯 Cumplimiento: ${usuario.cumplimiento}%
+            </div>
         `;
+    });
+
+    document.getElementById("estadisticas").innerHTML = html;
 }
 
 async function iniciar(){
