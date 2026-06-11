@@ -32,6 +32,10 @@ button{
     background:#dff0d8;
 }
 
+.enproceso{
+    background:#fff3cd;
+}
+
 #dashboard{
     border:1px solid #ddd;
     padding:15px;
@@ -46,15 +50,16 @@ button{
 
 <h1>📋 Mi Gestor Personal</h1>
 
-<div style="margin-bottom:20px;">
-    <input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareas()">
+<input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareas()">
 
-    <select id="filtroEstado" onchange="cargarTareas()">
-        <option value="todas">Todas</option>
-        <option value="pendiente">Pendientes</option>
-        <option value="completada">Completadas</option>
-    </select>
-</div>
+<select id="filtroEstado" onchange="cargarTareas()">
+    <option value="todas">Todas</option>
+    <option value="pendiente">Pendientes</option>
+    <option value="en proceso">En proceso</option>
+    <option value="completada">Completadas</option>
+</select>
+
+<br>
 
 <input id="titulo" type="text" placeholder="Nueva tarea">
 
@@ -78,6 +83,8 @@ button{
 <div id="listaTareas"></div>
 
 <script>
+let todasLasTareas = [];
+
 async function agregarTarea(){
     const titulo = document.getElementById("titulo").value;
     const prioridad = document.getElementById("prioridad").value;
@@ -91,11 +98,7 @@ async function agregarTarea(){
     await fetch("/tareas", {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({
-            titulo,
-            prioridad,
-            fechaLimite
-        })
+        body:JSON.stringify({ titulo, prioridad, fechaLimite })
     });
 
     document.getElementById("titulo").value = "";
@@ -105,9 +108,23 @@ async function agregarTarea(){
     cargarCumplimiento();
 }
 
-async function completarTarea(id){
-    await fetch(`/tareas/${id}/completar`, {
-        method:"PUT"
+async function actualizarTarea(id){
+    const tarea = todasLasTareas.find(t => t.id === id);
+
+    const titulo = document.getElementById(`titulo-${id}`).value;
+    const prioridad = document.getElementById(`prioridad-${id}`).value;
+    const estado = document.getElementById(`estado-${id}`).value;
+    const fechaLimite = document.getElementById(`fecha-${id}`).value;
+
+    await fetch(`/tareas/${id}`, {
+        method:"PUT",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({
+            titulo,
+            prioridad,
+            estado,
+            fechaLimite
+        })
     });
 
     cargarTareas();
@@ -130,6 +147,8 @@ async function eliminarTarea(id){
 async function cargarTareas(){
     const respuesta = await fetch("/tareas");
     const tareas = await respuesta.json();
+
+    todasLasTareas = tareas;
 
     let tareasFiltradas = [...tareas];
 
@@ -167,21 +186,35 @@ async function cargarTareas(){
         div.className =
             tarea.estado === "completada"
             ? "tarea completada"
+            : tarea.estado === "en proceso"
+            ? "tarea enproceso"
             : "tarea";
 
         div.innerHTML = `
-            <strong>${tarea.titulo}</strong><br><br>
+            <strong>Editar tarea</strong><br><br>
 
-            Prioridad: ${tarea.prioridad}<br>
-            Fecha límite: ${tarea.fechaLimite || "Sin fecha"}<br>
-            Estado: ${tarea.estado}<br><br>
+            <input id="titulo-${tarea.id}" value="${tarea.titulo}">
 
-            ${
-                tarea.estado === "pendiente"
-                ? `<button onclick="completarTarea(${tarea.id})">Completar</button>`
-                : "✅ Terminada"
-            }
+            <select id="prioridad-${tarea.id}">
+                <option value="alta" ${tarea.prioridad === "alta" ? "selected" : ""}>Alta</option>
+                <option value="media" ${tarea.prioridad === "media" ? "selected" : ""}>Media</option>
+                <option value="baja" ${tarea.prioridad === "baja" ? "selected" : ""}>Baja</option>
+            </select>
 
+            <select id="estado-${tarea.id}">
+                <option value="pendiente" ${tarea.estado === "pendiente" ? "selected" : ""}>Pendiente</option>
+                <option value="en proceso" ${tarea.estado === "en proceso" ? "selected" : ""}>En proceso</option>
+                <option value="completada" ${tarea.estado === "completada" ? "selected" : ""}>Completada</option>
+            </select>
+
+            <input type="date" id="fecha-${tarea.id}" value="${tarea.fecha_limite || ""}">
+
+            <br><br>
+
+            Estado actual: ${tarea.estado}<br>
+            Fecha límite: ${tarea.fecha_limite || "Sin fecha"}<br><br>
+
+            <button onclick="actualizarTarea(${tarea.id})">Guardar cambios</button>
             <button onclick="eliminarTarea(${tarea.id})">Eliminar</button>
         `;
 
@@ -200,6 +233,7 @@ async function cargarCumplimiento(){
         `
         📋 Total: ${datos.total}<br>
         ✅ Completadas: ${datos.completadas}<br>
+        🔄 En proceso: ${datos.enProceso}<br>
         ⏳ Pendientes: ${datos.pendientes}
         `;
 }

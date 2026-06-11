@@ -1,92 +1,95 @@
 const express = require("express");
 const cors = require("cors");
-const fs = require("fs");
 const path = require("path");
+const { Pool } = require("pg");
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const archivoTareas = "tareas.json";
+
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+});
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(__dirname));
 
-let tareas = [];
-
-if (fs.existsSync(archivoTareas)) {
-    try {
-        const datos = fs.readFileSync(archivoTareas, "utf8");
-        tareas = JSON.parse(datos);
-    } catch (error) {
-        tareas = [];
-    }
-}
-
-function guardarTareas() {
-    fs.writeFileSync(archivoTareas, JSON.stringify(tareas, null, 2));
-}
-
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
-app.get("/tareas", (req, res) => {
-    res.json(tareas);
+app.get("/tareas", async (req, res) => {
+    const resultado = await pool.query(
+        "SELECT * FROM tareas ORDER BY id DESC"
+    );
+    res.json(resultado.rows);
 });
 
-app.post("/tareas", (req, res) => {
-    const nuevaTarea = {
-        id: Date.now(),
-        titulo: req.body.titulo,
-        prioridad: req.body.prioridad || "media",
-        fechaLimite: req.body.fechaLimite || "",
-        estado: "pendiente",
-        fechaCreacion: new Date().toISOString()
-    };
+app.post("/tareas", async (req, res) => {
+    const { titulo, prioridad, fechaLimite } = req.body;
 
-    tareas.push(nuevaTarea);
-    guardarTareas();
+    const resultado = await pool.query(
+        `INSERT INTO tareas 
+        (titulo, prioridad, estado, fecha_limite)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *`,
+        [titulo, prioridad || "media", "pendiente", fechaLimite || ""]
+    );
 
-    res.json(nuevaTarea);
+    res.json(resultado.rows[0]);
 });
 
-app.put("/tareas/:id/completar", (req, res) => {
-    const id = Number(req.params.id);
-    const tarea = tareas.find(t => t.id === id);
+app.put("/tareas/:id", async (req, res) => {
+    const { id } = req.params;
+    const { titulo, prioridad, estado, fechaLimite } = req.body;
 
-    if (!tarea) {
-        return res.status(404).json({ mensaje: "No encontrada" });
-    }
+    const resultado = await pool.query(
+        `UPDATE tareas
+        SET titulo = $1,
+            prioridad = $2,
+            estado = $3,
+            fecha_limite = $4
+        WHERE id = $5
+        RETURNING *`,
+        [titulo, prioridad, estado, fechaLimite || "", id]
+    );
 
-    tarea.estado = "completada";
-    guardarTareas();
-
-    res.json(tarea);
+    res.json(resultado.rows[0]);
 });
 
-app.delete("/tareas/:id", (req, res) => {
-    const id = Number(req.params.id);
+app.delete("/tareas/:id", async (req, res) => {
+    const { id } = req.params;
 
-    tareas = tareas.filter(t => t.id !== id);
-    guardarTareas();
+    await pool.query(
+        "DELETE FROM tareas WHERE id = $1",
+        [id]
+    );
 
-    res.json({ mensaje: "Eliminada" });
+    res.json({ mensaje: "Tarea eliminada" });
 });
 
-app.get("/cumplimiento", (req, res) => {
+app.get("/cumplimiento", async (req, res) => {
+    const resultado = await pool.query("SELECT * FROM tareas");
+    const tareas = resultado.rows;
+
     const total = tareas.length;
     const completadas = tareas.filter(t => t.estado === "completada").length;
-    const pendientes = total - completadas;
+    const enProceso = tareas.filter(t => t.estado === "en proceso").length;
+    const pendientes = tareas.filter(t => t.estado === "pendiente").length;
+
     const cumplimiento = total === 0 ? 0 : Math.round((completadas / total) * 100);
 
     res.json({
         total,
         completadas,
+        enProceso,
         pendientes,
         cumplimiento
     });
 });
 
 app.listen(PORT, () => {
-    console.log(`Servidor iniciado en http://localhost:${PORT}`);
+    console.log(`Servidor iniciado en puerto ${PORT}`);
 });
