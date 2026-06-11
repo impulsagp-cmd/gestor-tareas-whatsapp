@@ -36,7 +36,7 @@ button{
     background:#fff3cd;
 }
 
-#dashboard{
+#dashboard, #usuariosBox{
     border:1px solid #ddd;
     padding:15px;
     margin-top:20px;
@@ -50,6 +50,16 @@ button{
 
 <h1>📋 Mi Gestor Personal</h1>
 
+<div id="usuariosBox">
+    <h2>Usuarios</h2>
+
+    <input id="nuevoUsuario" type="text" placeholder="Nombre del usuario">
+
+    <button onclick="agregarUsuario()">
+        Agregar usuario
+    </button>
+</div>
+
 <input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareas()">
 
 <select id="filtroEstado" onchange="cargarTareas()">
@@ -57,6 +67,10 @@ button{
     <option value="pendiente">Pendientes</option>
     <option value="en proceso">En proceso</option>
     <option value="completada">Completadas</option>
+</select>
+
+<select id="filtroUsuario" onchange="cargarTareas()">
+    <option value="todos">Todos los usuarios</option>
 </select>
 
 <br>
@@ -71,6 +85,10 @@ button{
 
 <input type="date" id="fechaLimite">
 
+<select id="usuarioAsignado">
+    <option value="">Sin asignar</option>
+</select>
+
 <button onclick="agregarTarea()">Agregar tarea</button>
 
 <div id="dashboard">
@@ -84,11 +102,58 @@ button{
 
 <script>
 let todasLasTareas = [];
+let usuarios = [];
+
+async function cargarUsuarios(){
+    const respuesta = await fetch("/usuarios");
+    usuarios = await respuesta.json();
+
+    const usuarioAsignado = document.getElementById("usuarioAsignado");
+    const filtroUsuario = document.getElementById("filtroUsuario");
+
+    usuarioAsignado.innerHTML = `<option value="">Sin asignar</option>`;
+    filtroUsuario.innerHTML = `<option value="todos">Todos los usuarios</option>`;
+
+    usuarios.forEach(usuario => {
+        usuarioAsignado.innerHTML += `
+            <option value="${usuario.id}">
+                ${usuario.nombre}
+            </option>
+        `;
+
+        filtroUsuario.innerHTML += `
+            <option value="${usuario.id}">
+                ${usuario.nombre}
+            </option>
+        `;
+    });
+}
+
+async function agregarUsuario(){
+    const nombre = document.getElementById("nuevoUsuario").value;
+
+    if(!nombre){
+        alert("Escribe el nombre del usuario");
+        return;
+    }
+
+    await fetch("/usuarios", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({ nombre })
+    });
+
+    document.getElementById("nuevoUsuario").value = "";
+
+    await cargarUsuarios();
+    await cargarTareas();
+}
 
 async function agregarTarea(){
     const titulo = document.getElementById("titulo").value;
     const prioridad = document.getElementById("prioridad").value;
     const fechaLimite = document.getElementById("fechaLimite").value;
+    const usuarioId = document.getElementById("usuarioAsignado").value;
 
     if(!titulo){
         alert("Escribe una tarea");
@@ -98,23 +163,28 @@ async function agregarTarea(){
     await fetch("/tareas", {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ titulo, prioridad, fechaLimite })
+        body:JSON.stringify({
+            titulo,
+            prioridad,
+            fechaLimite,
+            usuarioId
+        })
     });
 
     document.getElementById("titulo").value = "";
     document.getElementById("fechaLimite").value = "";
+    document.getElementById("usuarioAsignado").value = "";
 
     cargarTareas();
     cargarCumplimiento();
 }
 
 async function actualizarTarea(id){
-    const tarea = todasLasTareas.find(t => t.id === id);
-
     const titulo = document.getElementById(`titulo-${id}`).value;
     const prioridad = document.getElementById(`prioridad-${id}`).value;
     const estado = document.getElementById(`estado-${id}`).value;
     const fechaLimite = document.getElementById(`fecha-${id}`).value;
+    const usuarioId = document.getElementById(`usuario-${id}`).value;
 
     await fetch(`/tareas/${id}`, {
         method:"PUT",
@@ -123,7 +193,8 @@ async function actualizarTarea(id){
             titulo,
             prioridad,
             estado,
-            fechaLimite
+            fechaLimite,
+            usuarioId
         })
     });
 
@@ -154,6 +225,7 @@ async function cargarTareas(){
 
     const textoBusqueda = document.getElementById("buscador").value.toLowerCase();
     const filtroEstado = document.getElementById("filtroEstado").value;
+    const filtroUsuario = document.getElementById("filtroUsuario").value;
 
     if(textoBusqueda){
         tareasFiltradas = tareasFiltradas.filter(t =>
@@ -164,6 +236,12 @@ async function cargarTareas(){
     if(filtroEstado !== "todas"){
         tareasFiltradas = tareasFiltradas.filter(t =>
             t.estado === filtroEstado
+        );
+    }
+
+    if(filtroUsuario !== "todos"){
+        tareasFiltradas = tareasFiltradas.filter(t =>
+            String(t.usuario_id) === filtroUsuario
         );
     }
 
@@ -190,6 +268,18 @@ async function cargarTareas(){
             ? "tarea enproceso"
             : "tarea";
 
+        let opcionesUsuarios = `
+            <option value="">Sin asignar</option>
+        `;
+
+        usuarios.forEach(usuario => {
+            opcionesUsuarios += `
+                <option value="${usuario.id}" ${tarea.usuario_id === usuario.id ? "selected" : ""}>
+                    ${usuario.nombre}
+                </option>
+            `;
+        });
+
         div.innerHTML = `
             <strong>Editar tarea</strong><br><br>
 
@@ -209,8 +299,13 @@ async function cargarTareas(){
 
             <input type="date" id="fecha-${tarea.id}" value="${tarea.fecha_limite || ""}">
 
+            <select id="usuario-${tarea.id}">
+                ${opcionesUsuarios}
+            </select>
+
             <br><br>
 
+            Asignado a: ${tarea.usuario_nombre || "Sin asignar"}<br>
             Estado actual: ${tarea.estado}<br>
             Fecha límite: ${tarea.fecha_limite || "Sin fecha"}<br><br>
 
@@ -238,8 +333,13 @@ async function cargarCumplimiento(){
         `;
 }
 
-cargarTareas();
-cargarCumplimiento();
+async function iniciar(){
+    await cargarUsuarios();
+    await cargarTareas();
+    await cargarCumplimiento();
+}
+
+iniciar();
 </script>
 
 </body>
