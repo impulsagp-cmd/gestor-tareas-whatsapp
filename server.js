@@ -26,6 +26,7 @@ function calcularMetricas(tareas) {
     const enProceso = tareas.filter(t => t.estado === "en proceso").length;
     const pendientes = tareas.filter(t => t.estado === "pendiente").length;
     const cumplimiento = total === 0 ? 0 : Math.round((completadas / total) * 100);
+
     return { total, completadas, enProceso, pendientes, cumplimiento };
 }
 
@@ -35,9 +36,12 @@ function filtrarPorPeriodo(tareas, periodo) {
 
     return tareas.filter(tarea => {
         if (!tarea.fecha_limite) return periodo === "todo";
+
         const fecha = new Date(tarea.fecha_limite + "T00:00:00");
 
-        if (periodo === "hoy") return fecha.getTime() === hoy.getTime();
+        if (periodo === "hoy") {
+            return fecha.getTime() === hoy.getTime();
+        }
 
         if (periodo === "semana") {
             const inicioSemana = new Date(hoy);
@@ -60,6 +64,30 @@ function filtrarPorPeriodo(tareas, periodo) {
     });
 }
 
+async function enviarTelegram(chatId, mensaje) {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+
+    if (!token || !chatId) {
+        return false;
+    }
+
+    const respuesta = await fetch(
+        `https://api.telegram.org/bot${token}/sendMessage`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: mensaje
+            })
+        }
+    );
+
+    const datos = await respuesta.json();
+
+    return datos.ok === true;
+}
+
 async function crearNotificacionAsignacion(tarea) {
     if (!tarea.usuario_id) return;
 
@@ -72,29 +100,80 @@ async function crearNotificacionAsignacion(tarea) {
 
     const u = usuario.rows[0];
 
-    if (!u.telefono) return;
+    const mensaje = `📋 Nueva tarea asignada
 
-    const mensaje = `Hola ${u.nombre}. Te asignaron una tarea:
+Hola ${u.nombre}.
 
-${tarea.titulo}
+Te asignaron una tarea:
 
-Prioridad: ${tarea.prioridad}
-Fecha límite: ${tarea.fecha_limite || "Sin fecha"}
-Estado: ${tarea.estado}`;
+📝 ${tarea.titulo}
+⚡ Prioridad: ${tarea.prioridad}
+📅 Fecha límite: ${tarea.fecha_limite || "Sin fecha"}
+📌 Estado: ${tarea.estado}`;
+
+    let enviada = false;
+
+    if (u.telegram_chat_id) {
+        enviada = await enviarTelegram(u.telegram_chat_id, mensaje);
+    }
 
     await pool.query(
-        `INSERT INTO notificaciones (usuario_id, telefono, mensaje)
-         VALUES ($1, $2, $3)`,
-        [u.id, u.telefono, mensaje]
+        `INSERT INTO notificaciones (usuario_id, telefono, mensaje, estado)
+         VALUES ($1, $2, $3, $4)`,
+        [
+            u.id,
+            u.telegram_chat_id || u.telefono || "",
+            mensaje,
+            enviada ? "enviada" : "pendiente"
+        ]
     );
 }
+
+/* TELEGRAM */
+
+app.get("/telegram/chatid", async (req, res) => {
+    try {
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+
+        const respuesta = await fetch(
+            `https://api.telegram.org/bot${token}/getUpdates`
+        );
+
+        const datos = await respuesta.json();
+
+        res.json(datos);
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post("/telegram/enviar-prueba", async (req, res) => {
+    try {
+        const { chatId, mensaje } = req.body;
+
+        const enviado = await enviarTelegram(
+            chatId,
+            mensaje || "Prueba desde el gestor de tareas ✅"
+        );
+
+        res.json({ enviado });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* USUARIOS */
 
 app.get("/usuarios", async (req, res) => {
     try {
         const resultado = await pool.query(
             "SELECT * FROM usuarios ORDER BY nombre ASC"
         );
+
         res.json(resultado.rows);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -102,16 +181,22 @@ app.get("/usuarios", async (req, res) => {
 
 app.post("/usuarios", async (req, res) => {
     try {
-        const { nombre, telefono, rol } = req.body;
+        const { nombre, telefono, telegramChatId, rol } = req.body;
 
         const resultado = await pool.query(
-            `INSERT INTO usuarios (nombre, telefono, rol)
-             VALUES ($1, $2, $3)
+            `INSERT INTO usuarios (nombre, telefono, telegram_chat_id, rol)
+             VALUES ($1, $2, $3, $4)
              RETURNING *`,
-            [nombre, telefono || "", rol || "usuario"]
+            [
+                nombre,
+                telefono || "",
+                telegramChatId || "",
+                rol || "usuario"
+            ]
         );
 
         res.json(resultado.rows[0]);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -120,23 +205,33 @@ app.post("/usuarios", async (req, res) => {
 app.put("/usuarios/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        const { nombre, telefono, rol } = req.body;
+        const { nombre, telefono, telegramChatId, rol } = req.body;
 
         const resultado = await pool.query(
             `UPDATE usuarios
              SET nombre = $1,
                  telefono = $2,
-                 rol = $3
-             WHERE id = $4
+                 telegram_chat_id = $3,
+                 rol = $4
+             WHERE id = $5
              RETURNING *`,
-            [nombre, telefono || "", rol || "usuario", id]
+            [
+                nombre,
+                telefono || "",
+                telegramChatId || "",
+                rol || "usuario",
+                id
+            ]
         );
 
         res.json(resultado.rows[0]);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+/* TAREAS */
 
 app.get("/tareas", async (req, res) => {
     try {
@@ -148,6 +243,7 @@ app.get("/tareas", async (req, res) => {
         `);
 
         res.json(resultado.rows);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -166,6 +262,7 @@ app.get("/tareas/usuario/:usuarioId", async (req, res) => {
         `, [usuarioId]);
 
         res.json(resultado.rows);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -192,6 +289,7 @@ app.post("/tareas", async (req, res) => {
         await crearNotificacionAsignacion(resultado.rows[0]);
 
         res.json(resultado.rows[0]);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -234,6 +332,7 @@ app.put("/tareas/:id", async (req, res) => {
         }
 
         res.json(resultado.rows[0]);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -249,10 +348,13 @@ app.delete("/tareas/:id", async (req, res) => {
         );
 
         res.json({ mensaje: "Tarea eliminada" });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+/* DASHBOARD */
 
 app.get("/mi-dashboard/:usuarioId", async (req, res) => {
     try {
@@ -318,6 +420,94 @@ app.get("/dashboard", async (req, res) => {
     }
 });
 
+/* RECORDATORIOS */
+
+app.get("/recordatorios/manana", async (req, res) => {
+    try {
+        const usuarios = await pool.query(
+            "SELECT * FROM usuarios WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''"
+        );
+
+        const hoy = new Date().toISOString().slice(0, 10);
+
+        let enviados = 0;
+
+        for (const usuario of usuarios.rows) {
+            const tareas = await pool.query(
+                `SELECT * FROM tareas 
+                 WHERE usuario_id = $1 
+                 AND fecha_limite = $2 
+                 AND estado <> 'completada'
+                 ORDER BY prioridad ASC`,
+                [usuario.id, hoy]
+            );
+
+            if (tareas.rows.length === 0) continue;
+
+            let mensaje = `☀️ Buenos días ${usuario.nombre}
+
+Estas son tus tareas para hoy:
+
+`;
+
+            tareas.rows.forEach((t, i) => {
+                mensaje += `${i + 1}. ${t.titulo} (${t.prioridad})\n`;
+            });
+
+            await enviarTelegram(usuario.telegram_chat_id, mensaje);
+            enviados++;
+        }
+
+        res.json({ enviados });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/recordatorios/retrasos", async (req, res) => {
+    try {
+        const usuarios = await pool.query(
+            "SELECT * FROM usuarios WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''"
+        );
+
+        const hoy = new Date().toISOString().slice(0, 10);
+
+        let enviados = 0;
+
+        for (const usuario of usuarios.rows) {
+            const tareas = await pool.query(
+                `SELECT * FROM tareas 
+                 WHERE usuario_id = $1 
+                 AND fecha_limite < $2 
+                 AND estado <> 'completada'
+                 ORDER BY fecha_limite ASC`,
+                [usuario.id, hoy]
+            );
+
+            if (tareas.rows.length === 0) continue;
+
+            let mensaje = `⚠️ ${usuario.nombre}, tienes tareas atrasadas:
+
+`;
+
+            tareas.rows.forEach((t, i) => {
+                mensaje += `${i + 1}. ${t.titulo} - venció: ${t.fecha_limite}\n`;
+            });
+
+            await enviarTelegram(usuario.telegram_chat_id, mensaje);
+            enviados++;
+        }
+
+        res.json({ enviados });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/* NOTIFICACIONES */
+
 app.get("/notificaciones/pendientes", async (req, res) => {
     try {
         const resultado = await pool.query(
@@ -325,6 +515,7 @@ app.get("/notificaciones/pendientes", async (req, res) => {
         );
 
         res.json(resultado.rows);
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -340,10 +531,13 @@ app.put("/notificaciones/:id/enviada", async (req, res) => {
         );
 
         res.json({ mensaje: "Notificación marcada como enviada" });
+
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+/* RESPALDOS */
 
 app.get("/respaldo/json", async (req, res) => {
     try {
