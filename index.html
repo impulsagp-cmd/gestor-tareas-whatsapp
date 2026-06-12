@@ -627,6 +627,9 @@ function pintarTareas(tareas, contenedorId){
 
         div.innerHTML = `
             <input id="titulo-${tarea.id}" value="${tarea.titulo}">
+            <textarea id="contexto-${tarea.id}">
+            ${tarea.contexto || ""}
+            </textarea>
             <textarea id="contexto-${tarea.id}" placeholder="Contexto de la tarea">${tarea.contexto || ""}</textarea>
 
             <select id="prioridad-${tarea.id}">
@@ -653,6 +656,15 @@ function pintarTareas(tareas, contenedorId){
                 <span class="badge">⚡ ${tarea.prioridad}</span>
                 <span class="badge">📌 ${tarea.estado}</span>
             </div>
+            <div style="
+                margin-top:10px;
+                padding:10px;
+                background:#f8fafc;
+                border-radius:10px;
+                font-size:14px;
+                ">
+                📖 ${tarea.contexto || "Sin contexto"}
+                </div>
 
             <button class="btn-success" onclick="actualizarTarea(${tarea.id})">
                 Guardar cambios

@@ -139,10 +139,9 @@ ${tarea.estado}`;
             enviada ? "enviada" : "pendiente"
         ]
     );
-}
-
     🔗 Ver tarea:
     https://gestor-tareas-whatsapp.onrender.com/?tarea=${tarea.id}
+}
 
 /* TELEGRAM */
 
