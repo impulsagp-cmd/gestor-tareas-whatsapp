@@ -20,6 +20,10 @@ app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
+function limpiarTelefono(telefono) {
+    return String(telefono || "").replace(/\D/g, "");
+}
+
 function calcularMetricas(tareas) {
     const total = tareas.length;
     const completadas = tareas.filter(t => t.estado === "completada").length;
@@ -84,7 +88,6 @@ async function enviarTelegram(chatId, mensaje) {
     );
 
     const datos = await respuesta.json();
-
     return datos.ok === true;
 }
 
@@ -107,9 +110,18 @@ Hola ${u.nombre}.
 Te asignaron una tarea:
 
 📝 ${tarea.titulo}
-⚡ Prioridad: ${tarea.prioridad}
-📅 Fecha límite: ${tarea.fecha_limite || "Sin fecha"}
-📌 Estado: ${tarea.estado}`;
+
+📖 Contexto:
+${tarea.contexto || "Sin descripción"}
+
+⚡ Prioridad:
+${tarea.prioridad}
+
+📅 Fecha límite:
+${tarea.fecha_limite || "Sin fecha"}
+
+📌 Estado:
+${tarea.estado}`;
 
     let enviada = false;
 
@@ -131,6 +143,68 @@ Te asignaron una tarea:
 
 /* TELEGRAM */
 
+async function vincularTelegramDesdeMensaje(update) {
+    const mensaje = update.message;
+    if (!mensaje || !mensaje.chat || !mensaje.text) return;
+
+    const chatId = mensaje.chat.id;
+    const texto = mensaje.text.trim();
+    const telefono = limpiarTelefono(texto);
+
+    if (!telefono) {
+        await enviarTelegram(
+            chatId,
+            `Hola 👋
+
+Para vincular tu cuenta escribe:
+
+/start TU_NUMERO
+
+Ejemplo:
+/start 526621696548`
+        );
+        return;
+    }
+
+    const resultado = await pool.query(
+        "SELECT * FROM usuarios WHERE telefono = $1 LIMIT 1",
+        [telefono]
+    );
+
+    if (resultado.rows.length === 0) {
+        await enviarTelegram(
+            chatId,
+            `No encontré un usuario con el teléfono ${telefono}.
+
+Pide que te registren primero en el gestor.`
+        );
+        return;
+    }
+
+    const usuario = resultado.rows[0];
+
+    await pool.query(
+        "UPDATE usuarios SET telegram_chat_id = $1 WHERE id = $2",
+        [String(chatId), usuario.id]
+    );
+
+    await enviarTelegram(
+        chatId,
+        `✅ Telegram vinculado correctamente.
+
+Hola ${usuario.nombre}, ya recibirás notificaciones de tus tareas.`
+    );
+}
+
+app.post("/telegram/webhook", async (req, res) => {
+    try {
+        await vincularTelegramDesdeMensaje(req.body);
+        res.json({ ok: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.get("/telegram/chatid", async (req, res) => {
     try {
         const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -140,7 +214,55 @@ app.get("/telegram/chatid", async (req, res) => {
         );
 
         const datos = await respuesta.json();
+        res.json(datos);
 
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/telegram/procesar-updates", async (req, res) => {
+    try {
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+
+        const respuesta = await fetch(
+            `https://api.telegram.org/bot${token}/getUpdates`
+        );
+
+        const datos = await respuesta.json();
+
+        if (datos.ok && Array.isArray(datos.result)) {
+            for (const update of datos.result) {
+                await vincularTelegramDesdeMensaje(update);
+            }
+        }
+
+        res.json({
+            ok: true,
+            procesados: datos.result ? datos.result.length : 0
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/telegram/configurar-webhook", async (req, res) => {
+    try {
+        const token = process.env.TELEGRAM_BOT_TOKEN;
+        const appUrl = "https://gestor-tareas-whatsapp.onrender.com";
+        const webhookUrl = `${appUrl}/telegram/webhook`;
+
+        const respuesta = await fetch(
+            `https://api.telegram.org/bot${token}/setWebhook`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url: webhookUrl })
+            }
+        );
+
+        const datos = await respuesta.json();
         res.json(datos);
 
     } catch (error) {
@@ -189,7 +311,7 @@ app.post("/usuarios", async (req, res) => {
              RETURNING *`,
             [
                 nombre,
-                telefono || "",
+                limpiarTelefono(telefono),
                 telegramChatId || "",
                 rol || "usuario"
             ]
@@ -217,7 +339,7 @@ app.put("/usuarios/:id", async (req, res) => {
              RETURNING *`,
             [
                 nombre,
-                telefono || "",
+                limpiarTelefono(telefono),
                 telegramChatId || "",
                 rol || "usuario",
                 id
@@ -270,15 +392,16 @@ app.get("/tareas/usuario/:usuarioId", async (req, res) => {
 
 app.post("/tareas", async (req, res) => {
     try {
-        const { titulo, prioridad, fechaLimite, usuarioId } = req.body;
+        const { titulo, contexto, prioridad, fechaLimite, usuarioId } = req.body;
 
         const resultado = await pool.query(
             `INSERT INTO tareas 
-            (titulo, prioridad, estado, fecha_limite, usuario_id)
-            VALUES ($1, $2, $3, $4, $5)
+            (titulo, contexto, prioridad, estado, fecha_limite, usuario_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *`,
             [
                 titulo,
+                contexto || "",
                 prioridad || "media",
                 "pendiente",
                 fechaLimite || "",
@@ -298,7 +421,7 @@ app.post("/tareas", async (req, res) => {
 app.put("/tareas/:id", async (req, res) => {
     try {
         const { id } = req.params;
-        const { titulo, prioridad, estado, fechaLimite, usuarioId } = req.body;
+        const { titulo, contexto, prioridad, estado, fechaLimite, usuarioId } = req.body;
 
         const anterior = await pool.query(
             "SELECT * FROM tareas WHERE id = $1",
@@ -308,14 +431,16 @@ app.put("/tareas/:id", async (req, res) => {
         const resultado = await pool.query(
             `UPDATE tareas
             SET titulo = $1,
-                prioridad = $2,
-                estado = $3,
-                fecha_limite = $4,
-                usuario_id = $5
-            WHERE id = $6
+                contexto = $2,
+                prioridad = $3,
+                estado = $4,
+                fecha_limite = $5,
+                usuario_id = $6
+            WHERE id = $7
             RETURNING *`,
             [
                 titulo,
+                contexto || "",
                 prioridad,
                 estado,
                 fechaLimite || "",
@@ -429,7 +554,6 @@ app.get("/recordatorios/manana", async (req, res) => {
         );
 
         const hoy = new Date().toISOString().slice(0, 10);
-
         let enviados = 0;
 
         for (const usuario of usuarios.rows) {
@@ -452,6 +576,9 @@ Estas son tus tareas para hoy:
 
             tareas.rows.forEach((t, i) => {
                 mensaje += `${i + 1}. ${t.titulo} (${t.prioridad})\n`;
+                if (t.contexto) {
+                    mensaje += `   ${t.contexto}\n`;
+                }
             });
 
             await enviarTelegram(usuario.telegram_chat_id, mensaje);
@@ -472,7 +599,6 @@ app.get("/recordatorios/retrasos", async (req, res) => {
         );
 
         const hoy = new Date().toISOString().slice(0, 10);
-
         let enviados = 0;
 
         for (const usuario of usuarios.rows) {
@@ -493,6 +619,9 @@ app.get("/recordatorios/retrasos", async (req, res) => {
 
             tareas.rows.forEach((t, i) => {
                 mensaje += `${i + 1}. ${t.titulo} - venció: ${t.fecha_limite}\n`;
+                if (t.contexto) {
+                    mensaje += `   ${t.contexto}\n`;
+                }
             });
 
             await enviarTelegram(usuario.telegram_chat_id, mensaje);
@@ -582,6 +711,7 @@ app.get("/respaldo/csv", async (req, res) => {
             SELECT 
                 tareas.id,
                 tareas.titulo,
+                tareas.contexto,
                 tareas.prioridad,
                 tareas.estado,
                 tareas.fecha_limite,
@@ -591,10 +721,10 @@ app.get("/respaldo/csv", async (req, res) => {
             ORDER BY tareas.id ASC
         `);
 
-        let csv = "id,titulo,prioridad,estado,fecha_limite,usuario\n";
+        let csv = "id,titulo,contexto,prioridad,estado,fecha_limite,usuario\n";
 
         resultado.rows.forEach(t => {
-            csv += `"${t.id}","${t.titulo}","${t.prioridad}","${t.estado}","${t.fecha_limite || ""}","${t.usuario_nombre || "Sin asignar"}"\n`;
+            csv += `"${t.id}","${t.titulo}","${t.contexto || ""}","${t.prioridad}","${t.estado}","${t.fecha_limite || ""}","${t.usuario_nombre || "Sin asignar"}"\n`;
         });
 
         const fecha = new Date().toISOString().slice(0, 10);
