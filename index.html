@@ -41,11 +41,17 @@ input, select, button, textarea{
     font-size:16px;
 }
 
+textarea{
+    min-height:90px;
+    resize:vertical;
+}
+
 button{
     background:#2563eb;
     color:white;
     border:none;
     font-weight:bold;
+    cursor:pointer;
 }
 
 .btn-danger{ background:#dc2626; }
@@ -100,15 +106,22 @@ button{
     margin-top:10px;
 }
 
+.contexto-box{
+    margin-top:10px;
+    padding:10px;
+    background:#f8fafc;
+    border-radius:10px;
+    font-size:14px;
+    white-space:pre-wrap;
+}
+
 hr{
     border:none;
     border-top:1px solid #e5e7eb;
     margin:15px 0;
 }
 
-.oculto{
-    display:none;
-}
+.oculto{ display:none; }
 
 .nav{
     display:grid;
@@ -120,6 +133,10 @@ hr{
 .small-text{
     color:#666;
     font-size:14px;
+}
+
+.multi-select{
+    height:150px;
 }
 </style>
 </head>
@@ -174,11 +191,7 @@ hr{
 
             <input id="titulo" type="text" placeholder="Escribe la tarea">
 
-            <textarea
-            id="contexto"
-            placeholder="Describe la tarea..."
-            style="width:100%;padding:14px;margin-top:8px;border-radius:12px;border:1px solid #ddd;font-size:16px;"
-            ></textarea>
+            <textarea id="contexto" placeholder="Contexto o descripción de la tarea"></textarea>
 
             <select id="prioridad">
                 <option value="alta">Prioridad alta</option>
@@ -193,13 +206,11 @@ hr{
                 <option value="equipo">Equipo</option>
             </select>
 
-            <label>Usuarios asignados</label>
-
-            <select id="usuariosAsignados" multiple style="height:150px;">
-            </select>
+            <label class="small-text">Usuarios asignados</label>
+            <select id="usuariosAsignados" multiple class="multi-select"></select>
 
             <div class="small-text">
-            Mantén presionada CTRL para seleccionar varios usuarios en PC.
+                En celular puedes mantener presionado o tocar varios usuarios según tu navegador.
             </div>
 
             <button onclick="agregarTarea()">Guardar tarea</button>
@@ -264,10 +275,6 @@ hr{
         <h3>📝 Tareas del equipo</h3>
         <div id="listaTareasEquipo"></div>
 
-<div class="small-text">
- 📖 ${tarea.contexto || "Sin contexto"}
- </div>
-
     </div>
 
 </div>
@@ -284,7 +291,7 @@ async function cargarUsuarios(){
     usuarios = await respuesta.json();
 
     const loginUsuario = document.getElementById("loginUsuario");
-    const usuariosAsignados =document.getElementById("usuariosAsignados");
+    const usuariosAsignados = document.getElementById("usuariosAsignados");
     const filtroUsuario = document.getElementById("filtroUsuario");
     const listaUsuarios = document.getElementById("listaUsuarios");
 
@@ -304,21 +311,9 @@ async function cargarUsuarios(){
         usuarios.forEach(usuario => {
             listaUsuarios.innerHTML += `
                 <div class="usuario-card">
-                    <input 
-                        id="usuario-nombre-${usuario.id}" 
-                        value="${usuario.nombre || ""}" 
-                        placeholder="Nombre"
-                    >
-
-                    <input 
-                        id="usuario-telefono-${usuario.id}" 
-                        value="${usuario.telefono || ""}" 
-                        placeholder="WhatsApp: 5216691234567"
-                    >
-
-                    <button onclick="actualizarUsuario(${usuario.id})">
-                        Guardar usuario
-                    </button>
+                    <input id="usuario-nombre-${usuario.id}" value="${usuario.nombre || ""}" placeholder="Nombre">
+                    <input id="usuario-telefono-${usuario.id}" value="${usuario.telefono || ""}" placeholder="WhatsApp: 5216691234567">
+                    <button onclick="actualizarUsuario(${usuario.id})">Guardar usuario</button>
                 </div>
             `;
         });
@@ -361,10 +356,9 @@ async function mostrarApp(){
     document.getElementById("pantallaLogin").classList.add("oculto");
     document.getElementById("appPrincipal").classList.remove("oculto");
 
-    document.getElementById("bienvenida").innerText =
-        `Hola, ${usuarioActual.nombre}`;
+    document.getElementById("bienvenida").innerText = `Hola, ${usuarioActual.nombre}`;
 
-    document.getElementById("usuarioAsignado").value = usuarioActual.id;
+    seleccionarUsuariosPorDefecto([usuarioActual.id]);
 
     mostrarModulo("miPanel");
 
@@ -383,6 +377,15 @@ function mostrarModulo(modulo){
         cargarDashboardEquipo();
         cargarTareasEquipo();
     }
+}
+
+function seleccionarUsuariosPorDefecto(ids){
+    const select = document.getElementById("usuariosAsignados");
+    const idsTexto = ids.map(String);
+
+    Array.from(select.options).forEach(option => {
+        option.selected = idsTexto.includes(String(option.value));
+    });
 }
 
 async function actualizarUsuario(id){
@@ -405,7 +408,6 @@ async function actualizarUsuario(id){
     });
 
     alert("Usuario actualizado");
-
     await cargarUsuarios();
 }
 
@@ -440,15 +442,19 @@ async function agregarTarea(){
     const contexto = document.getElementById("contexto").value;
     const prioridad = document.getElementById("prioridad").value;
     const fechaLimite = document.getElementById("fechaLimite").value;
-    const tipoAsignacion =document.getElementById("tipoAsignacion").value;
+    const tipoAsignacion = document.getElementById("tipoAsignacion").value;
 
-const usuarioIds =
-Array.from(
-document.getElementById("usuariosAsignados").selectedOptions
-).map(x => x.value);
+    const usuarioIds = Array.from(
+        document.getElementById("usuariosAsignados").selectedOptions
+    ).map(x => x.value);
 
     if(!titulo){
         alert("Escribe una tarea");
+        return;
+    }
+
+    if(usuarioIds.length === 0){
+        alert("Selecciona al menos un usuario");
         return;
     }
 
@@ -468,7 +474,9 @@ document.getElementById("usuariosAsignados").selectedOptions
     document.getElementById("titulo").value = "";
     document.getElementById("contexto").value = "";
     document.getElementById("fechaLimite").value = "";
-    document.getElementById("usuarioAsignado").value = usuarioActual.id;
+    document.getElementById("tipoAsignacion").value = "individual";
+
+    seleccionarUsuariosPorDefecto([usuarioActual.id]);
 
     await cargarMiPanel();
     await cargarTareasEquipo();
@@ -477,20 +485,27 @@ document.getElementById("usuariosAsignados").selectedOptions
 
 async function actualizarTarea(id){
     const titulo = document.getElementById(`titulo-${id}`).value;
+    const contexto = document.getElementById(`contexto-${id}`).value;
     const prioridad = document.getElementById(`prioridad-${id}`).value;
     const estado = document.getElementById(`estado-${id}`).value;
     const fechaLimite = document.getElementById(`fecha-${id}`).value;
-    const usuarioId = document.getElementById(`usuario-${id}`).value;
+    const tipoAsignacion = document.getElementById(`tipo-${id}`).value;
+
+    const usuarioIds = Array.from(
+        document.getElementById(`usuarios-${id}`).selectedOptions
+    ).map(x => x.value);
 
     await fetch(`/tareas/${id}`, {
         method:"PUT",
         headers:{ "Content-Type":"application/json" },
         body:JSON.stringify({
             titulo,
+            contexto,
             prioridad,
             estado,
             fechaLimite,
-            usuarioId
+            usuarioIds,
+            tipoAsignacion
         })
     });
 
@@ -532,8 +547,8 @@ async function cargarMiPanel(){
     const tareas = await respuestaTareas.json();
 
     const pendientes = tareas.filter(t => t.estado === "pendiente");
-    pintarTareas(pendientes, "misPendientes");
 
+    pintarTareas(pendientes, "misPendientes");
     pintarTareas(tareas, "misTareas");
 }
 
@@ -590,7 +605,8 @@ async function cargarTareasEquipo(){
 
     if(textoBusqueda){
         tareasFiltradas = tareasFiltradas.filter(t =>
-            t.titulo.toLowerCase().includes(textoBusqueda)
+            (t.titulo || "").toLowerCase().includes(textoBusqueda) ||
+            (t.contexto || "").toLowerCase().includes(textoBusqueda)
         );
     }
 
@@ -599,17 +615,34 @@ async function cargarTareasEquipo(){
     }
 
     if(filtroUsuario !== "todos"){
-        tareasFiltradas = tareasFiltradas.filter(t => String(t.usuario_id) === filtroUsuario);
+        tareasFiltradas = tareasFiltradas.filter(t => {
+            const asignados = obtenerIdsAsignados(t);
+            return asignados.includes(String(filtroUsuario));
+        });
     }
 
     pintarTareas(tareasFiltradas, "listaTareasEquipo");
+}
+
+function obtenerIdsAsignados(tarea){
+    let ids = [];
+
+    if(Array.isArray(tarea.usuarios_asignados_ids)){
+        ids = tarea.usuarios_asignados_ids.map(String);
+    }
+
+    if(ids.length === 0 && tarea.usuario_id){
+        ids = [String(tarea.usuario_id)];
+    }
+
+    return ids;
 }
 
 function pintarTareas(tareas, contenedorId){
     const ordenPrioridad = { alta:1, media:2, baja:3 };
 
     tareas.sort((a,b) =>
-        ordenPrioridad[a.prioridad] - ordenPrioridad[b.prioridad]
+        (ordenPrioridad[a.prioridad] || 9) - (ordenPrioridad[b.prioridad] || 9)
     );
 
     const lista = document.getElementById(contenedorId);
@@ -631,21 +664,21 @@ function pintarTareas(tareas, contenedorId){
             ? "tarea enproceso"
             : "tarea pendiente";
 
-        let opcionesUsuarios = `<option value="">Sin asignar</option>`;
+        const asignados = obtenerIdsAsignados(tarea);
+
+        let opcionesUsuarios = "";
 
         usuarios.forEach(usuario => {
             opcionesUsuarios += `
-                <option value="${usuario.id}" ${tarea.usuario_id === usuario.id ? "selected" : ""}>
+                <option value="${usuario.id}" ${asignados.includes(String(usuario.id)) ? "selected" : ""}>
                     ${usuario.nombre}
                 </option>
             `;
         });
 
         div.innerHTML = `
-            <input id="titulo-${tarea.id}" value="${tarea.titulo}">
-            <textarea id="contexto-${tarea.id}">
-            ${tarea.contexto || ""}
-            </textarea>
+            <input id="titulo-${tarea.id}" value="${tarea.titulo || ""}">
+
             <textarea id="contexto-${tarea.id}" placeholder="Contexto de la tarea">${tarea.contexto || ""}</textarea>
 
             <select id="prioridad-${tarea.id}">
@@ -662,26 +695,27 @@ function pintarTareas(tareas, contenedorId){
 
             <input type="date" id="fecha-${tarea.id}" value="${tarea.fecha_limite || ""}">
 
-            <select id="usuario-${tarea.id}">
+            <select id="tipo-${tarea.id}">
+                <option value="individual" ${(tarea.tipo_asignacion || "individual") === "individual" ? "selected" : ""}>Individual</option>
+                <option value="equipo" ${tarea.tipo_asignacion === "equipo" ? "selected" : ""}>Equipo</option>
+            </select>
+
+            <label class="small-text">Usuarios asignados</label>
+            <select id="usuarios-${tarea.id}" multiple class="multi-select">
                 ${opcionesUsuarios}
             </select>
 
             <div>
                 <span class="badge">👥 ${tarea.usuarios_asignados_nombres || tarea.usuario_nombre || "Sin asignar"}</span>
                 <span class="badge">📅 ${tarea.fecha_limite || "Sin fecha"}</span>
-                <span class="badge">⚡ ${tarea.prioridad}</span>
+                <span class="badge">⚡ ${tarea.prioridad || "Sin prioridad"}</span>
+                <span class="badge">📌 ${tarea.estado || "Sin estado"}</span>
                 <span class="badge">🎯 ${tarea.tipo_asignacion || "individual"}</span>
-                <span class="badge">📌 ${tarea.estado}</span>
             </div>
-            <div style="
-                margin-top:10px;
-                padding:10px;
-                background:#f8fafc;
-                border-radius:10px;
-                font-size:14px;
-                ">
+
+            <div class="contexto-box">
                 📖 ${tarea.contexto || "Sin contexto"}
-                </div>
+            </div>
 
             <button class="btn-success" onclick="actualizarTarea(${tarea.id})">
                 Guardar cambios
