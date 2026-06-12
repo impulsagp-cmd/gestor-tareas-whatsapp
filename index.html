@@ -32,7 +32,7 @@ h1{ font-size:24px; margin:10px 0 20px; }
     box-shadow:0 3px 10px rgba(0,0,0,0.08);
 }
 
-input, select, button{
+input, select, button, textarea{
     width:100%;
     padding:14px;
     margin-top:8px;
@@ -253,6 +253,10 @@ hr{
 
         <h3>📝 Tareas del equipo</h3>
         <div id="listaTareasEquipo"></div>
+
+<div class="small-text">
+ 📖 ${tarea.contexto || "Sin contexto"}
+ </div>
 
     </div>
 
@@ -602,6 +606,7 @@ function pintarTareas(tareas, contenedorId){
 
     tareas.forEach(tarea => {
         const div = document.createElement("div");
+        div.id = `tarea-card-${tarea.id}`;
 
         div.className =
             tarea.estado === "completada"
@@ -622,6 +627,7 @@ function pintarTareas(tareas, contenedorId){
 
         div.innerHTML = `
             <input id="titulo-${tarea.id}" value="${tarea.titulo}">
+            <textarea id="contexto-${tarea.id}" placeholder="Contexto de la tarea">${tarea.contexto || ""}</textarea>
 
             <select id="prioridad-${tarea.id}">
                 <option value="alta" ${tarea.prioridad === "alta" ? "selected" : ""}>Alta</option>
@@ -659,6 +665,19 @@ function pintarTareas(tareas, contenedorId){
 
         lista.appendChild(div);
     });
+
+    const params = new URLSearchParams(window.location.search);
+    const tareaId = params.get("tarea");
+
+    if(tareaId){
+        setTimeout(() => {
+            const elemento = document.getElementById(`tarea-card-${tareaId}`);
+            if(elemento){
+                elemento.scrollIntoView({ behavior:"smooth", block:"center" });
+                elemento.style.outline = "4px solid #f59e0b";
+            }
+        }, 500);
+    }
 }
 
 function descargarRespaldoJSON(){

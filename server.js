@@ -141,6 +141,9 @@ ${tarea.estado}`;
     );
 }
 
+    🔗 Ver tarea:
+    https://gestor-tareas-whatsapp.onrender.com/?tarea=${tarea.id}
+
 /* TELEGRAM */
 
 async function vincularTelegramDesdeMensaje(update) {
