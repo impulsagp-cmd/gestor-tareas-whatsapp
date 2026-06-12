@@ -1,11 +1,13 @@
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const crypto = require("crypto");
 const { Pool } = require("pg");
 require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const APP_URL = "https://gestor-tareas-whatsapp.onrender.com";
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -91,21 +93,23 @@ async function enviarTelegram(chatId, mensaje) {
     return datos.ok === true;
 }
 
-async function crearNotificacionAsignacion(tarea) {
-    if (!tarea.usuario_id) return;
-
-    const usuario = await pool.query(
-        "SELECT * FROM usuarios WHERE id = $1",
-        [tarea.usuario_id]
+async function obtenerUsuariosAsignados(tareaId) {
+    const resultado = await pool.query(
+        `SELECT usuarios.*
+         FROM tarea_usuarios
+         INNER JOIN usuarios ON usuarios.id = tarea_usuarios.usuario_id
+         WHERE tarea_usuarios.tarea_id = $1`,
+        [tareaId]
     );
 
-    if (usuario.rows.length === 0) return;
+    return resultado.rows;
+}
 
-    const u = usuario.rows[0];
+async function notificarAsignacion(tarea, usuariosAsignados) {
+    for (const usuario of usuariosAsignados) {
+        const mensaje = `📋 Nueva tarea asignada
 
-    const mensaje = `📋 Nueva tarea asignada
-
-Hola ${u.nombre}.
+Hola ${usuario.nombre}.
 
 Te asignaron una tarea:
 
@@ -121,27 +125,31 @@ ${tarea.prioridad}
 ${tarea.fecha_limite || "Sin fecha"}
 
 📌 Estado:
-${tarea.estado}`;
+${tarea.estado}
+
+👥 Tipo:
+${tarea.tipo_asignacion === "equipo" ? "Equipo" : "Individual"}
 
 🔗 Ver tarea:
-https://gestor-tareas-whatsapp.onrender.com/?tarea=${tarea.id}
+${APP_URL}/?tarea=${tarea.id}`;
 
-    let enviada = false;
+        let enviada = false;
 
-    if (u.telegram_chat_id) {
-        enviada = await enviarTelegram(u.telegram_chat_id, mensaje);
+        if (usuario.telegram_chat_id) {
+            enviada = await enviarTelegram(usuario.telegram_chat_id, mensaje);
+        }
+
+        await pool.query(
+            `INSERT INTO notificaciones (usuario_id, telefono, mensaje, estado)
+             VALUES ($1, $2, $3, $4)`,
+            [
+                usuario.id,
+                usuario.telegram_chat_id || usuario.telefono || "",
+                mensaje,
+                enviada ? "enviada" : "pendiente"
+            ]
+        );
     }
-
-    await pool.query(
-        `INSERT INTO notificaciones (usuario_id, telefono, mensaje, estado)
-         VALUES ($1, $2, $3, $4)`,
-        [
-            u.id,
-            u.telegram_chat_id || u.telefono || "",
-            mensaje,
-            enviada ? "enviada" : "pendiente"
-        ]
-    );
 }
 
 /* TELEGRAM */
@@ -208,53 +216,10 @@ app.post("/telegram/webhook", async (req, res) => {
     }
 });
 
-app.get("/telegram/chatid", async (req, res) => {
-    try {
-        const token = process.env.TELEGRAM_BOT_TOKEN;
-
-        const respuesta = await fetch(
-            `https://api.telegram.org/bot${token}/getUpdates`
-        );
-
-        const datos = await respuesta.json();
-        res.json(datos);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get("/telegram/procesar-updates", async (req, res) => {
-    try {
-        const token = process.env.TELEGRAM_BOT_TOKEN;
-
-        const respuesta = await fetch(
-            `https://api.telegram.org/bot${token}/getUpdates`
-        );
-
-        const datos = await respuesta.json();
-
-        if (datos.ok && Array.isArray(datos.result)) {
-            for (const update of datos.result) {
-                await vincularTelegramDesdeMensaje(update);
-            }
-        }
-
-        res.json({
-            ok: true,
-            procesados: datos.result ? datos.result.length : 0
-        });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
 app.get("/telegram/configurar-webhook", async (req, res) => {
     try {
         const token = process.env.TELEGRAM_BOT_TOKEN;
-        const appUrl = "https://gestor-tareas-whatsapp.onrender.com";
-        const webhookUrl = `${appUrl}/telegram/webhook`;
+        const webhookUrl = `${APP_URL}/telegram/webhook`;
 
         const respuesta = await fetch(
             `https://api.telegram.org/bot${token}/setWebhook`,
@@ -273,16 +238,16 @@ app.get("/telegram/configurar-webhook", async (req, res) => {
     }
 });
 
-app.post("/telegram/enviar-prueba", async (req, res) => {
+app.get("/telegram/chatid", async (req, res) => {
     try {
-        const { chatId, mensaje } = req.body;
+        const token = process.env.TELEGRAM_BOT_TOKEN;
 
-        const enviado = await enviarTelegram(
-            chatId,
-            mensaje || "Prueba desde el gestor de tareas ✅"
+        const respuesta = await fetch(
+            `https://api.telegram.org/bot${token}/getUpdates`
         );
 
-        res.json({ enviado });
+        const datos = await respuesta.json();
+        res.json(datos);
 
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -358,17 +323,37 @@ app.put("/usuarios/:id", async (req, res) => {
 
 /* TAREAS */
 
+async function consultarTareas(whereSql = "", params = []) {
+    const resultado = await pool.query(`
+        SELECT 
+            tareas.*,
+            usuarios.nombre AS usuario_nombre,
+            COALESCE(
+                json_agg(DISTINCT tarea_usuarios.usuario_id) 
+                FILTER (WHERE tarea_usuarios.usuario_id IS NOT NULL),
+                '[]'
+            ) AS usuarios_asignados_ids,
+            COALESCE(
+                string_agg(DISTINCT usuarios_asignados.nombre, ', ')
+                FILTER (WHERE usuarios_asignados.nombre IS NOT NULL),
+                ''
+            ) AS usuarios_asignados_nombres
+        FROM tareas
+        LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+        LEFT JOIN tarea_usuarios ON tarea_usuarios.tarea_id = tareas.id
+        LEFT JOIN usuarios AS usuarios_asignados ON usuarios_asignados.id = tarea_usuarios.usuario_id
+        ${whereSql}
+        GROUP BY tareas.id, usuarios.nombre
+        ORDER BY tareas.id DESC
+    `, params);
+
+    return resultado.rows;
+}
+
 app.get("/tareas", async (req, res) => {
     try {
-        const resultado = await pool.query(`
-            SELECT tareas.*, usuarios.nombre AS usuario_nombre
-            FROM tareas
-            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
-            ORDER BY tareas.id DESC
-        `);
-
-        res.json(resultado.rows);
-
+        const tareas = await consultarTareas();
+        res.json(tareas);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -378,15 +363,17 @@ app.get("/tareas/usuario/:usuarioId", async (req, res) => {
     try {
         const { usuarioId } = req.params;
 
-        const resultado = await pool.query(`
-            SELECT tareas.*, usuarios.nombre AS usuario_nombre
-            FROM tareas
-            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+        const tareas = await consultarTareas(`
             WHERE tareas.usuario_id = $1
-            ORDER BY tareas.id DESC
+            OR EXISTS (
+                SELECT 1
+                FROM tarea_usuarios
+                WHERE tarea_usuarios.tarea_id = tareas.id
+                AND tarea_usuarios.usuario_id = $1
+            )
         `, [usuarioId]);
 
-        res.json(resultado.rows);
+        res.json(tareas);
 
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -394,52 +381,164 @@ app.get("/tareas/usuario/:usuarioId", async (req, res) => {
 });
 
 app.post("/tareas", async (req, res) => {
+    const client = await pool.connect();
+
     try {
-        const { titulo, contexto, prioridad, fechaLimite, usuarioId } = req.body;
+        await client.query("BEGIN");
 
-        const resultado = await pool.query(
-            `INSERT INTO tareas 
-            (titulo, contexto, prioridad, estado, fecha_limite, usuario_id)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *`,
-            [
-                titulo,
-                contexto || "",
-                prioridad || "media",
-                "pendiente",
-                fechaLimite || "",
-                usuarioId || null
-            ]
-        );
+        const {
+            titulo,
+            contexto,
+            prioridad,
+            fechaLimite,
+            usuarioId,
+            usuarioIds,
+            tipoAsignacion
+        } = req.body;
 
-        await crearNotificacionAsignacion(resultado.rows[0]);
+        const tipo = tipoAsignacion || "individual";
+        let usuariosAsignados = Array.isArray(usuarioIds)
+            ? usuarioIds.filter(Boolean)
+            : [];
 
-        res.json(resultado.rows[0]);
+        if (usuarioId && usuariosAsignados.length === 0) {
+            usuariosAsignados = [usuarioId];
+        }
+
+        const grupoId = crypto.randomUUID();
+        const tareasCreadas = [];
+
+        if (tipo === "individual") {
+            for (const uid of usuariosAsignados) {
+                const resultado = await client.query(
+                    `INSERT INTO tareas 
+                    (titulo, contexto, prioridad, estado, fecha_limite, usuario_id, tipo_asignacion, grupo_id)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    RETURNING *`,
+                    [
+                        titulo,
+                        contexto || "",
+                        prioridad || "media",
+                        "pendiente",
+                        fechaLimite || "",
+                        uid || null,
+                        "individual",
+                        grupoId
+                    ]
+                );
+
+                const tarea = resultado.rows[0];
+
+                if (uid) {
+                    await client.query(
+                        `INSERT INTO tarea_usuarios (tarea_id, usuario_id)
+                         VALUES ($1, $2)
+                         ON CONFLICT DO NOTHING`,
+                        [tarea.id, uid]
+                    );
+                }
+
+                tareasCreadas.push(tarea);
+            }
+        } else {
+            const primerUsuario = usuariosAsignados[0] || null;
+
+            const resultado = await client.query(
+                `INSERT INTO tareas 
+                (titulo, contexto, prioridad, estado, fecha_limite, usuario_id, tipo_asignacion, grupo_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING *`,
+                [
+                    titulo,
+                    contexto || "",
+                    prioridad || "media",
+                    "pendiente",
+                    fechaLimite || "",
+                    primerUsuario,
+                    "equipo",
+                    grupoId
+                ]
+            );
+
+            const tarea = resultado.rows[0];
+
+            for (const uid of usuariosAsignados) {
+                await client.query(
+                    `INSERT INTO tarea_usuarios (tarea_id, usuario_id)
+                     VALUES ($1, $2)
+                     ON CONFLICT DO NOTHING`,
+                    [tarea.id, uid]
+                );
+            }
+
+            tareasCreadas.push(tarea);
+        }
+
+        await client.query("COMMIT");
+
+        for (const tarea of tareasCreadas) {
+            const usuarios = await obtenerUsuariosAsignados(tarea.id);
+            await notificarAsignacion(tarea, usuarios);
+        }
+
+        res.json({
+            mensaje: "Tareas creadas",
+            tareas: tareasCreadas
+        });
 
     } catch (error) {
+        await client.query("ROLLBACK");
         res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
     }
 });
 
 app.put("/tareas/:id", async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { titulo, contexto, prioridad, estado, fechaLimite, usuarioId } = req.body;
+    const client = await pool.connect();
 
-        const anterior = await pool.query(
-            "SELECT * FROM tareas WHERE id = $1",
+    try {
+        await client.query("BEGIN");
+
+        const { id } = req.params;
+        const {
+            titulo,
+            contexto,
+            prioridad,
+            estado,
+            fechaLimite,
+            usuarioId,
+            usuarioIds,
+            tipoAsignacion
+        } = req.body;
+
+        const anteriorAsignados = await client.query(
+            "SELECT usuario_id FROM tarea_usuarios WHERE tarea_id = $1",
             [id]
         );
 
-        const resultado = await pool.query(
+        const anteriores = anteriorAsignados.rows.map(r => String(r.usuario_id));
+
+        let usuariosAsignados = Array.isArray(usuarioIds)
+            ? usuarioIds.filter(Boolean).map(String)
+            : [];
+
+        if (usuarioId && usuariosAsignados.length === 0) {
+            usuariosAsignados = [String(usuarioId)];
+        }
+
+        const primerUsuario = usuariosAsignados[0] || usuarioId || null;
+
+        const resultado = await client.query(
             `UPDATE tareas
             SET titulo = $1,
                 contexto = $2,
                 prioridad = $3,
                 estado = $4,
                 fecha_limite = $5,
-                usuario_id = $6
-            WHERE id = $7
+                usuario_id = $6,
+                tipo_asignacion = $7
+            WHERE id = $8
             RETURNING *`,
             [
                 titulo,
@@ -447,22 +546,48 @@ app.put("/tareas/:id", async (req, res) => {
                 prioridad,
                 estado,
                 fechaLimite || "",
-                usuarioId || null,
+                primerUsuario,
+                tipoAsignacion || "individual",
                 id
             ]
         );
 
-        if (
-            anterior.rows.length > 0 &&
-            String(anterior.rows[0].usuario_id || "") !== String(usuarioId || "")
-        ) {
-            await crearNotificacionAsignacion(resultado.rows[0]);
+        await client.query(
+            "DELETE FROM tarea_usuarios WHERE tarea_id = $1",
+            [id]
+        );
+
+        for (const uid of usuariosAsignados) {
+            await client.query(
+                `INSERT INTO tarea_usuarios (tarea_id, usuario_id)
+                 VALUES ($1, $2)
+                 ON CONFLICT DO NOTHING`,
+                [id, uid]
+            );
         }
 
-        res.json(resultado.rows[0]);
+        await client.query("COMMIT");
+
+        const tarea = resultado.rows[0];
+
+        const nuevosUsuarios = usuariosAsignados.filter(uid => !anteriores.includes(String(uid)));
+
+        if (nuevosUsuarios.length > 0) {
+            const usuarios = await pool.query(
+                `SELECT * FROM usuarios WHERE id = ANY($1::bigint[])`,
+                [nuevosUsuarios]
+            );
+
+            await notificarAsignacion(tarea, usuarios.rows);
+        }
+
+        res.json(tarea);
 
     } catch (error) {
+        await client.query("ROLLBACK");
         res.status(500).json({ error: error.message });
+    } finally {
+        client.release();
     }
 });
 
@@ -489,14 +614,17 @@ app.get("/mi-dashboard/:usuarioId", async (req, res) => {
         const { usuarioId } = req.params;
         const periodo = req.query.periodo || "hoy";
 
-        const resultado = await pool.query(`
-            SELECT tareas.*, usuarios.nombre AS usuario_nombre
-            FROM tareas
-            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
+        const tareas = await consultarTareas(`
             WHERE tareas.usuario_id = $1
+            OR EXISTS (
+                SELECT 1
+                FROM tarea_usuarios
+                WHERE tarea_usuarios.tarea_id = tareas.id
+                AND tarea_usuarios.usuario_id = $1
+            )
         `, [usuarioId]);
 
-        const tareasPeriodo = filtrarPorPeriodo(resultado.rows, periodo);
+        const tareasPeriodo = filtrarPorPeriodo(tareas, periodo);
         const metricas = calcularMetricas(tareasPeriodo);
         const pendientes = tareasPeriodo.filter(t => t.estado === "pendiente");
 
@@ -515,21 +643,21 @@ app.get("/dashboard", async (req, res) => {
     try {
         const periodo = req.query.periodo || "hoy";
 
-        const resultado = await pool.query(`
-            SELECT tareas.*, usuarios.nombre AS usuario_nombre
-            FROM tareas
-            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
-        `);
-
-        const tareasFiltradas = filtrarPorPeriodo(resultado.rows, periodo);
+        const tareas = await consultarTareas();
+        const tareasFiltradas = filtrarPorPeriodo(tareas, periodo);
         const general = calcularMetricas(tareasFiltradas);
 
         const agrupado = {};
 
         tareasFiltradas.forEach(tarea => {
-            const nombre = tarea.usuario_nombre || "Sin asignar";
-            if (!agrupado[nombre]) agrupado[nombre] = [];
-            agrupado[nombre].push(tarea);
+            const nombres = tarea.usuarios_asignados_nombres
+                ? tarea.usuarios_asignados_nombres.split(", ")
+                : [tarea.usuario_nombre || "Sin asignar"];
+
+            nombres.forEach(nombre => {
+                if (!agrupado[nombre]) agrupado[nombre] = [];
+                agrupado[nombre].push(tarea);
+            });
         });
 
         const usuarios = Object.keys(agrupado).map(nombre => ({
@@ -560,16 +688,21 @@ app.get("/recordatorios/manana", async (req, res) => {
         let enviados = 0;
 
         for (const usuario of usuarios.rows) {
-            const tareas = await pool.query(
-                `SELECT * FROM tareas 
-                 WHERE usuario_id = $1 
-                 AND fecha_limite = $2 
-                 AND estado <> 'completada'
-                 ORDER BY prioridad ASC`,
-                [usuario.id, hoy]
-            );
+            const tareas = await consultarTareas(`
+                WHERE (
+                    tareas.usuario_id = $1
+                    OR EXISTS (
+                        SELECT 1
+                        FROM tarea_usuarios
+                        WHERE tarea_usuarios.tarea_id = tareas.id
+                        AND tarea_usuarios.usuario_id = $1
+                    )
+                )
+                AND tareas.fecha_limite = $2
+                AND tareas.estado <> 'completada'
+            `, [usuario.id, hoy]);
 
-            if (tareas.rows.length === 0) continue;
+            if (tareas.length === 0) continue;
 
             let mensaje = `☀️ Buenos días ${usuario.nombre}
 
@@ -577,11 +710,9 @@ Estas son tus tareas para hoy:
 
 `;
 
-            tareas.rows.forEach((t, i) => {
+            tareas.forEach((t, i) => {
                 mensaje += `${i + 1}. ${t.titulo} (${t.prioridad})\n`;
-                if (t.contexto) {
-                    mensaje += `   ${t.contexto}\n`;
-                }
+                if (t.contexto) mensaje += `   ${t.contexto}\n`;
             });
 
             await enviarTelegram(usuario.telegram_chat_id, mensaje);
@@ -605,26 +736,29 @@ app.get("/recordatorios/retrasos", async (req, res) => {
         let enviados = 0;
 
         for (const usuario of usuarios.rows) {
-            const tareas = await pool.query(
-                `SELECT * FROM tareas 
-                 WHERE usuario_id = $1 
-                 AND fecha_limite < $2 
-                 AND estado <> 'completada'
-                 ORDER BY fecha_limite ASC`,
-                [usuario.id, hoy]
-            );
+            const tareas = await consultarTareas(`
+                WHERE (
+                    tareas.usuario_id = $1
+                    OR EXISTS (
+                        SELECT 1
+                        FROM tarea_usuarios
+                        WHERE tarea_usuarios.tarea_id = tareas.id
+                        AND tarea_usuarios.usuario_id = $1
+                    )
+                )
+                AND tareas.fecha_limite < $2
+                AND tareas.estado <> 'completada'
+            `, [usuario.id, hoy]);
 
-            if (tareas.rows.length === 0) continue;
+            if (tareas.length === 0) continue;
 
             let mensaje = `⚠️ ${usuario.nombre}, tienes tareas atrasadas:
 
 `;
 
-            tareas.rows.forEach((t, i) => {
+            tareas.forEach((t, i) => {
                 mensaje += `${i + 1}. ${t.titulo} - venció: ${t.fecha_limite}\n`;
-                if (t.contexto) {
-                    mensaje += `   ${t.contexto}\n`;
-                }
+                if (t.contexto) mensaje += `   ${t.contexto}\n`;
             });
 
             await enviarTelegram(usuario.telegram_chat_id, mensaje);
@@ -674,14 +808,7 @@ app.put("/notificaciones/:id/enviada", async (req, res) => {
 app.get("/respaldo/json", async (req, res) => {
     try {
         const usuarios = await pool.query("SELECT * FROM usuarios ORDER BY id ASC");
-
-        const tareas = await pool.query(`
-            SELECT tareas.*, usuarios.nombre AS usuario_nombre
-            FROM tareas
-            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
-            ORDER BY tareas.id ASC
-        `);
-
+        const tareas = await consultarTareas();
         const notificaciones = await pool.query(
             "SELECT * FROM notificaciones ORDER BY id ASC"
         );
@@ -689,7 +816,7 @@ app.get("/respaldo/json", async (req, res) => {
         const respaldo = {
             generado_en: new Date().toISOString(),
             usuarios: usuarios.rows,
-            tareas: tareas.rows,
+            tareas,
             notificaciones: notificaciones.rows
         };
 
@@ -710,24 +837,12 @@ app.get("/respaldo/json", async (req, res) => {
 
 app.get("/respaldo/csv", async (req, res) => {
     try {
-        const resultado = await pool.query(`
-            SELECT 
-                tareas.id,
-                tareas.titulo,
-                tareas.contexto,
-                tareas.prioridad,
-                tareas.estado,
-                tareas.fecha_limite,
-                usuarios.nombre AS usuario_nombre
-            FROM tareas
-            LEFT JOIN usuarios ON tareas.usuario_id = usuarios.id
-            ORDER BY tareas.id ASC
-        `);
+        const tareas = await consultarTareas();
 
-        let csv = "id,titulo,contexto,prioridad,estado,fecha_limite,usuario\n";
+        let csv = "id,titulo,contexto,tipo_asignacion,prioridad,estado,fecha_limite,usuarios\n";
 
-        resultado.rows.forEach(t => {
-            csv += `"${t.id}","${t.titulo}","${t.contexto || ""}","${t.prioridad}","${t.estado}","${t.fecha_limite || ""}","${t.usuario_nombre || "Sin asignar"}"\n`;
+        tareas.forEach(t => {
+            csv += `"${t.id}","${t.titulo}","${t.contexto || ""}","${t.tipo_asignacion || "individual"}","${t.prioridad}","${t.estado}","${t.fecha_limite || ""}","${t.usuarios_asignados_nombres || t.usuario_nombre || "Sin asignar"}"\n`;
         });
 
         const fecha = new Date().toISOString().slice(0, 10);

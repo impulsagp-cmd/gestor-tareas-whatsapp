@@ -188,9 +188,19 @@ hr{
 
             <input type="date" id="fechaLimite">
 
-            <select id="usuarioAsignado">
-                <option value="">Sin asignar</option>
+            <select id="tipoAsignacion">
+                <option value="individual">Individual</option>
+                <option value="equipo">Equipo</option>
             </select>
+
+            <label>Usuarios asignados</label>
+
+            <select id="usuariosAsignados" multiple style="height:150px;">
+            </select>
+
+            <div class="small-text">
+            Mantén presionada CTRL para seleccionar varios usuarios en PC.
+            </div>
 
             <button onclick="agregarTarea()">Guardar tarea</button>
         </div>
@@ -274,17 +284,17 @@ async function cargarUsuarios(){
     usuarios = await respuesta.json();
 
     const loginUsuario = document.getElementById("loginUsuario");
-    const usuarioAsignado = document.getElementById("usuarioAsignado");
+    const usuariosAsignados =document.getElementById("usuariosAsignados");
     const filtroUsuario = document.getElementById("filtroUsuario");
     const listaUsuarios = document.getElementById("listaUsuarios");
 
     loginUsuario.innerHTML = `<option value="">Selecciona tu usuario</option>`;
-    usuarioAsignado.innerHTML = `<option value="">Sin asignar</option>`;
+    usuariosAsignados.innerHTML = "";
     filtroUsuario.innerHTML = `<option value="todos">Todos los usuarios</option>`;
 
     usuarios.forEach(usuario => {
         loginUsuario.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
-        usuarioAsignado.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
+        usuariosAsignados.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
         filtroUsuario.innerHTML += `<option value="${usuario.id}">${usuario.nombre}</option>`;
     });
 
@@ -430,7 +440,12 @@ async function agregarTarea(){
     const contexto = document.getElementById("contexto").value;
     const prioridad = document.getElementById("prioridad").value;
     const fechaLimite = document.getElementById("fechaLimite").value;
-    const usuarioId = document.getElementById("usuarioAsignado").value;
+    const tipoAsignacion =document.getElementById("tipoAsignacion").value;
+
+const usuarioIds =
+Array.from(
+document.getElementById("usuariosAsignados").selectedOptions
+).map(x => x.value);
 
     if(!titulo){
         alert("Escribe una tarea");
@@ -445,7 +460,8 @@ async function agregarTarea(){
             contexto,
             prioridad,
             fechaLimite,
-            usuarioId
+            usuarioIds,
+            tipoAsignacion
         })
     });
 
@@ -651,9 +667,10 @@ function pintarTareas(tareas, contenedorId){
             </select>
 
             <div>
-                <span class="badge">👤 ${tarea.usuario_nombre || "Sin asignar"}</span>
+                <span class="badge">👥 ${tarea.usuarios_asignados_nombres || tarea.usuario_nombre || "Sin asignar"}</span>
                 <span class="badge">📅 ${tarea.fecha_limite || "Sin fecha"}</span>
                 <span class="badge">⚡ ${tarea.prioridad}</span>
+                <span class="badge">🎯 ${tarea.tipo_asignacion || "individual"}</span>
                 <span class="badge">📌 ${tarea.estado}</span>
             </div>
             <div style="
