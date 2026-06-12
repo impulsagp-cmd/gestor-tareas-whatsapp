@@ -860,6 +860,109 @@ app.get("/respaldo/csv", async (req, res) => {
     }
 });
 
+app.get("/recordatorios/cumplimiento-dia", async (req, res) => {
+    try {
+        const usuarios = await pool.query(
+            "SELECT * FROM usuarios WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''"
+        );
+
+        const hoy = new Date().toISOString().slice(0, 10);
+        let enviados = 0;
+
+        for (const usuario of usuarios.rows) {
+
+            const tareasHoy = await consultarTareas(`
+                WHERE (
+                    tareas.usuario_id = $1
+                    OR EXISTS (
+                        SELECT 1
+                        FROM tarea_usuarios
+                        WHERE tarea_usuarios.tarea_id = tareas.id
+                        AND tarea_usuarios.usuario_id = $1
+                    )
+                )
+                AND tareas.fecha_limite = $2
+            `, [usuario.id, hoy]);
+
+            const tareasRetrasadas = await consultarTareas(`
+                WHERE (
+                    tareas.usuario_id = $1
+                    OR EXISTS (
+                        SELECT 1
+                        FROM tarea_usuarios
+                        WHERE tarea_usuarios.tarea_id = tareas.id
+                        AND tarea_usuarios.usuario_id = $1
+                    )
+                )
+                AND tareas.fecha_limite < $2
+                AND tareas.estado <> 'completada'
+            `, [usuario.id, hoy]);
+
+            const total = tareasHoy.length;
+            const completadas = tareasHoy.filter(t => t.estado === "completada").length;
+            const enProceso = tareasHoy.filter(t => t.estado === "en proceso").length;
+            const pendientes = tareasHoy.filter(t => t.estado === "pendiente").length;
+
+            const cumplimiento =
+                total === 0 ? 0 : Math.round((completadas / total) * 100);
+
+            let mensaje = `📊 Cumplimiento del día
+
+Hola ${usuario.nombre}.
+
+Hoy tienes:
+
+📋 Total de hoy: ${total}
+✅ Completadas: ${completadas}
+🔄 En proceso: ${enProceso}
+⏳ Pendientes: ${pendientes}
+
+🎯 Cumplimiento actual: ${cumplimiento}%
+
+`;
+
+            if (tareasRetrasadas.length > 0) {
+                mensaje += `⚠️ Tareas con retraso:
+
+`;
+
+                tareasRetrasadas.forEach((t, i) => {
+                    mensaje += `${i + 1}. ${t.titulo}
+📅 Venció: ${t.fecha_limite}
+📌 Estado: ${t.estado}
+`;
+
+                    if (t.contexto) {
+                        mensaje += `📖 ${t.contexto}
+`;
+                    }
+
+                    mensaje += `
+`;
+                });
+            } else {
+                mensaje += `✅ No tienes tareas retrasadas.
+
+`;
+            }
+
+            mensaje += `🔗 Ver sistema:
+${APP_URL}`;
+
+            await enviarTelegram(usuario.telegram_chat_id, mensaje);
+            enviados++;
+        }
+
+        res.json({
+            mensaje: "Cumplimiento enviado con tareas retrasadas",
+            enviados
+        });
+
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Servidor iniciado en puerto ${PORT}`);
 });
