@@ -26,13 +26,16 @@ function limpiarTelefono(telefono) {
     return String(telefono || "").replace(/\D/g, "");
 }
 
+function folioDeId(id) {
+    return `T-${String(id).padStart(6, "0")}`;
+}
+
 function calcularMetricas(tareas) {
     const total = tareas.length;
     const completadas = tareas.filter(t => t.estado === "completada").length;
     const enProceso = tareas.filter(t => t.estado === "en proceso").length;
     const pendientes = tareas.filter(t => t.estado === "pendiente").length;
     const cumplimiento = total === 0 ? 0 : Math.round((completadas / total) * 100);
-
     return { total, completadas, enProceso, pendientes, cumplimiento };
 }
 
@@ -42,12 +45,9 @@ function filtrarPorPeriodo(tareas, periodo) {
 
     return tareas.filter(tarea => {
         if (!tarea.fecha_limite) return periodo === "todo";
-
         const fecha = new Date(tarea.fecha_limite + "T00:00:00");
 
-        if (periodo === "hoy") {
-            return fecha.getTime() === hoy.getTime();
-        }
+        if (periodo === "hoy") return fecha.getTime() === hoy.getTime();
 
         if (periodo === "semana") {
             const inicioSemana = new Date(hoy);
@@ -72,10 +72,7 @@ function filtrarPorPeriodo(tareas, periodo) {
 
 async function enviarTelegram(chatId, mensaje) {
     const token = process.env.TELEGRAM_BOT_TOKEN;
-
-    if (!token || !chatId) {
-        return false;
-    }
+    if (!token || !chatId) return false;
 
     const respuesta = await fetch(
         `https://api.telegram.org/bot${token}/sendMessage`,
@@ -93,6 +90,17 @@ async function enviarTelegram(chatId, mensaje) {
     return datos.ok === true;
 }
 
+async function obtenerUsuario(id) {
+    if (!id) return null;
+
+    const resultado = await pool.query(
+        "SELECT * FROM usuarios WHERE id = $1",
+        [id]
+    );
+
+    return resultado.rows[0] || null;
+}
+
 async function obtenerUsuariosAsignados(tareaId) {
     const resultado = await pool.query(
         `SELECT usuarios.*
@@ -105,15 +113,56 @@ async function obtenerUsuariosAsignados(tareaId) {
     return resultado.rows;
 }
 
-async function notificarAsignacion(tarea, usuariosAsignados) {
+async function guardarNotificacion(usuario, mensaje, enviada) {
+    try {
+        await pool.query(
+            `INSERT INTO notificaciones (usuario_id, telefono, mensaje, estado)
+             VALUES ($1, $2, $3, $4)`,
+            [
+                usuario.id,
+                usuario.telegram_chat_id || usuario.telefono || "",
+                mensaje,
+                enviada ? "enviada" : "pendiente"
+            ]
+        );
+    } catch (error) {
+        console.log("No se pudo guardar notificación:", error.message);
+    }
+}
+
+async function notificarUsuarios(usuariosDestino, mensaje, usuarioQueGeneroId = null) {
+    for (const usuario of usuariosDestino) {
+        if (String(usuario.id) === String(usuarioQueGeneroId || "")) {
+            continue;
+        }
+
+        let enviada = false;
+
+        if (usuario.telegram_chat_id) {
+            enviada = await enviarTelegram(usuario.telegram_chat_id, mensaje);
+        }
+
+        await guardarNotificacion(usuario, mensaje, enviada);
+    }
+}
+
+async function notificarAsignacion(tarea, usuariosAsignados, usuarioQueGeneroId = null) {
     for (const usuario of usuariosAsignados) {
+        if (String(usuario.id) === String(usuarioQueGeneroId || "")) {
+            continue;
+        }
+
         const mensaje = `📋 Nueva tarea asignada
 
 Hola ${usuario.nombre}.
 
 Te asignaron una tarea:
 
-📝 ${tarea.titulo}
+🧾 Folio:
+${tarea.folio || folioDeId(tarea.id)}
+
+📝 Tarea:
+${tarea.titulo}
 
 📖 Contexto:
 ${tarea.contexto || "Sin descripción"}
@@ -139,17 +188,63 @@ ${APP_URL}/?tarea=${tarea.id}`;
             enviada = await enviarTelegram(usuario.telegram_chat_id, mensaje);
         }
 
-        await pool.query(
-            `INSERT INTO notificaciones (usuario_id, telefono, mensaje, estado)
-             VALUES ($1, $2, $3, $4)`,
-            [
-                usuario.id,
-                usuario.telegram_chat_id || usuario.telefono || "",
-                mensaje,
-                enviada ? "enviada" : "pendiente"
-            ]
-        );
+        await guardarNotificacion(usuario, mensaje, enviada);
     }
+}
+
+async function notificarCambioTarea(tarea, cambios, usuarioQueGeneroId) {
+    const usuarioActor = await obtenerUsuario(usuarioQueGeneroId);
+    const usuariosAsignados = await obtenerUsuariosAsignados(tarea.id);
+
+    if (usuariosAsignados.length === 0) return;
+
+    let textoCambios = "";
+
+    cambios.forEach(cambio => {
+        textoCambios += `• ${cambio.campo}
+Antes: ${cambio.antes || "Sin dato"}
+Ahora: ${cambio.ahora || "Sin dato"}
+
+`;
+    });
+
+    const mensaje = `🔔 Actualización de tarea
+
+${usuarioActor ? usuarioActor.nombre : "Un usuario"} modificó una tarea.
+
+🧾 Folio:
+${tarea.folio || folioDeId(tarea.id)}
+
+📝 Tarea:
+${tarea.titulo}
+
+${textoCambios}🔗 Ver tarea:
+${APP_URL}/?tarea=${tarea.id}`;
+
+    await notificarUsuarios(usuariosAsignados, mensaje, usuarioQueGeneroId);
+}
+
+async function notificarComentario(tarea, comentario, usuarioQueGeneroId) {
+    const usuarioActor = await obtenerUsuario(usuarioQueGeneroId);
+    const usuariosAsignados = await obtenerUsuariosAsignados(tarea.id);
+
+    const mensaje = `💬 Nuevo comentario
+
+${usuarioActor ? usuarioActor.nombre : "Un usuario"} comentó en una tarea.
+
+🧾 Folio:
+${tarea.folio || folioDeId(tarea.id)}
+
+📝 Tarea:
+${tarea.titulo}
+
+💬 Comentario:
+${comentario}
+
+🔗 Ver tarea:
+${APP_URL}/?tarea=${tarea.id}`;
+
+    await notificarUsuarios(usuariosAsignados, mensaje, usuarioQueGeneroId);
 }
 
 /* TELEGRAM */
@@ -232,7 +327,6 @@ app.get("/telegram/configurar-webhook", async (req, res) => {
 
         const datos = await respuesta.json();
         res.json(datos);
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -248,7 +342,6 @@ app.get("/telegram/chatid", async (req, res) => {
 
         const datos = await respuesta.json();
         res.json(datos);
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -263,7 +356,6 @@ app.get("/usuarios", async (req, res) => {
         );
 
         res.json(resultado.rows);
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -286,7 +378,6 @@ app.post("/usuarios", async (req, res) => {
         );
 
         res.json(resultado.rows[0]);
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -301,32 +392,32 @@ app.put("/usuarios/:id", async (req, res) => {
             `UPDATE usuarios
              SET nombre = $1,
                  telefono = $2,
-                 telegram_chat_id = $3,
+                 telegram_chat_id = COALESCE($3, telegram_chat_id),
                  rol = $4
              WHERE id = $5
              RETURNING *`,
             [
                 nombre,
                 limpiarTelefono(telefono),
-                telegramChatId || "",
+                telegramChatId || null,
                 rol || "usuario",
                 id
             ]
         );
 
         res.json(resultado.rows[0]);
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
 
-/* TAREAS */
+/* CONSULTAS TAREAS */
 
 async function consultarTareas(whereSql = "", params = []) {
     const resultado = await pool.query(`
         SELECT 
             tareas.*,
+            COALESCE(tareas.folio, 'T-' || lpad(tareas.id::text, 6, '0')) AS folio,
             usuarios.nombre AS usuario_nombre,
             COALESCE(
                 json_agg(DISTINCT tarea_usuarios.usuario_id) 
@@ -374,11 +465,12 @@ app.get("/tareas/usuario/:usuarioId", async (req, res) => {
         `, [usuarioId]);
 
         res.json(tareas);
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+/* CREAR TAREAS */
 
 app.post("/tareas", async (req, res) => {
     const client = await pool.connect();
@@ -391,19 +483,16 @@ app.post("/tareas", async (req, res) => {
             contexto,
             prioridad,
             fechaLimite,
-            usuarioId,
             usuarioIds,
-            tipoAsignacion
+            tipoAsignacion,
+            usuarioActualId
         } = req.body;
 
         const tipo = tipoAsignacion || "individual";
+
         let usuariosAsignados = Array.isArray(usuarioIds)
             ? usuarioIds.filter(Boolean)
             : [];
-
-        if (usuarioId && usuariosAsignados.length === 0) {
-            usuariosAsignados = [usuarioId];
-        }
 
         const grupoId = crypto.randomUUID();
         const tareasCreadas = [];
@@ -421,22 +510,28 @@ app.post("/tareas", async (req, res) => {
                         prioridad || "media",
                         "pendiente",
                         fechaLimite || "",
-                        uid || null,
+                        uid,
                         "individual",
                         grupoId
                     ]
                 );
 
                 const tarea = resultado.rows[0];
+                const folio = folioDeId(tarea.id);
 
-                if (uid) {
-                    await client.query(
-                        `INSERT INTO tarea_usuarios (tarea_id, usuario_id)
-                         VALUES ($1, $2)
-                         ON CONFLICT DO NOTHING`,
-                        [tarea.id, uid]
-                    );
-                }
+                await client.query(
+                    "UPDATE tareas SET folio = $1 WHERE id = $2",
+                    [folio, tarea.id]
+                );
+
+                tarea.folio = folio;
+
+                await client.query(
+                    `INSERT INTO tarea_usuarios (tarea_id, usuario_id)
+                     VALUES ($1, $2)
+                     ON CONFLICT DO NOTHING`,
+                    [tarea.id, uid]
+                );
 
                 tareasCreadas.push(tarea);
             }
@@ -461,6 +556,14 @@ app.post("/tareas", async (req, res) => {
             );
 
             const tarea = resultado.rows[0];
+            const folio = folioDeId(tarea.id);
+
+            await client.query(
+                "UPDATE tareas SET folio = $1 WHERE id = $2",
+                [folio, tarea.id]
+            );
+
+            tarea.folio = folio;
 
             for (const uid of usuariosAsignados) {
                 await client.query(
@@ -478,7 +581,7 @@ app.post("/tareas", async (req, res) => {
 
         for (const tarea of tareasCreadas) {
             const usuarios = await obtenerUsuariosAsignados(tarea.id);
-            await notificarAsignacion(tarea, usuarios);
+            await notificarAsignacion(tarea, usuarios, usuarioActualId);
         }
 
         res.json({
@@ -494,6 +597,8 @@ app.post("/tareas", async (req, res) => {
     }
 });
 
+/* EDITAR TAREA */
+
 app.put("/tareas/:id", async (req, res) => {
     const client = await pool.connect();
 
@@ -501,33 +606,30 @@ app.put("/tareas/:id", async (req, res) => {
         await client.query("BEGIN");
 
         const { id } = req.params;
+
         const {
             titulo,
             contexto,
             prioridad,
             estado,
             fechaLimite,
-            usuarioId,
             usuarioIds,
-            tipoAsignacion
+            tipoAsignacion,
+            usuarioActualId
         } = req.body;
 
-        const anteriorAsignados = await client.query(
-            "SELECT usuario_id FROM tarea_usuarios WHERE tarea_id = $1",
+        const anteriorQuery = await client.query(
+            "SELECT * FROM tareas WHERE id = $1",
             [id]
         );
 
-        const anteriores = anteriorAsignados.rows.map(r => String(r.usuario_id));
+        const anterior = anteriorQuery.rows[0];
 
         let usuariosAsignados = Array.isArray(usuarioIds)
             ? usuarioIds.filter(Boolean).map(String)
             : [];
 
-        if (usuarioId && usuariosAsignados.length === 0) {
-            usuariosAsignados = [String(usuarioId)];
-        }
-
-        const primerUsuario = usuariosAsignados[0] || usuarioId || null;
+        const primerUsuario = usuariosAsignados[0] || null;
 
         const resultado = await client.query(
             `UPDATE tareas
@@ -569,16 +671,36 @@ app.put("/tareas/:id", async (req, res) => {
         await client.query("COMMIT");
 
         const tarea = resultado.rows[0];
+        tarea.folio = tarea.folio || folioDeId(tarea.id);
 
-        const nuevosUsuarios = usuariosAsignados.filter(uid => !anteriores.includes(String(uid)));
+        const cambios = [];
 
-        if (nuevosUsuarios.length > 0) {
-            const usuarios = await pool.query(
-                `SELECT * FROM usuarios WHERE id = ANY($1::bigint[])`,
-                [nuevosUsuarios]
-            );
+        if (anterior.titulo !== titulo) {
+            cambios.push({ campo: "Título", antes: anterior.titulo, ahora: titulo });
+        }
 
-            await notificarAsignacion(tarea, usuarios.rows);
+        if ((anterior.contexto || "") !== (contexto || "")) {
+            cambios.push({ campo: "Contexto", antes: anterior.contexto || "", ahora: contexto || "" });
+        }
+
+        if (anterior.prioridad !== prioridad) {
+            cambios.push({ campo: "Prioridad", antes: anterior.prioridad, ahora: prioridad });
+        }
+
+        if (anterior.estado !== estado) {
+            cambios.push({ campo: "Estado", antes: anterior.estado, ahora: estado });
+        }
+
+        if ((anterior.fecha_limite || "") !== (fechaLimite || "")) {
+            cambios.push({ campo: "Fecha límite", antes: anterior.fecha_limite || "", ahora: fechaLimite || "" });
+        }
+
+        if ((anterior.tipo_asignacion || "individual") !== (tipoAsignacion || "individual")) {
+            cambios.push({ campo: "Tipo", antes: anterior.tipo_asignacion || "individual", ahora: tipoAsignacion || "individual" });
+        }
+
+        if (cambios.length > 0) {
+            await notificarCambioTarea(tarea, cambios, usuarioActualId);
         }
 
         res.json(tarea);
@@ -601,7 +723,60 @@ app.delete("/tareas/:id", async (req, res) => {
         );
 
         res.json({ mensaje: "Tarea eliminada" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
+/* COMENTARIOS */
+
+app.get("/tareas/:id/comentarios", async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const resultado = await pool.query(
+            `SELECT 
+                comentarios_tareas.*,
+                usuarios.nombre AS usuario_nombre
+             FROM comentarios_tareas
+             LEFT JOIN usuarios ON usuarios.id = comentarios_tareas.usuario_id
+             WHERE tarea_id = $1
+             ORDER BY comentarios_tareas.id ASC`,
+            [id]
+        );
+
+        res.json(resultado.rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post("/tareas/:id/comentarios", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { usuarioActualId, comentario } = req.body;
+
+        if (!comentario) {
+            return res.status(400).json({ error: "Comentario vacío" });
+        }
+
+        const resultado = await pool.query(
+            `INSERT INTO comentarios_tareas (tarea_id, usuario_id, comentario)
+             VALUES ($1, $2, $3)
+             RETURNING *`,
+            [id, usuarioActualId || null, comentario]
+        );
+
+        const tareaResultado = await pool.query(
+            "SELECT *, COALESCE(folio, 'T-' || lpad(id::text, 6, '0')) AS folio FROM tareas WHERE id = $1",
+            [id]
+        );
+
+        const tarea = tareaResultado.rows[0];
+
+        await notificarComentario(tarea, comentario, usuarioActualId);
+
+        res.json(resultado.rows[0]);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -633,7 +808,6 @@ app.get("/mi-dashboard/:usuarioId", async (req, res) => {
             metricas,
             pendientes
         });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -670,7 +844,6 @@ app.get("/dashboard", async (req, res) => {
             general,
             usuarios
         });
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -706,155 +879,24 @@ app.get("/recordatorios/manana", async (req, res) => {
 
             let mensaje = `☀️ Buenos días ${usuario.nombre}
 
-Estas son tus tareas para hoy:
+Estas son tus tareas pendientes para hoy:
 
 `;
 
             tareas.forEach((t, i) => {
-                mensaje += `${i + 1}. ${t.titulo} (${t.prioridad})\n`;
+                mensaje += `${i + 1}. ${t.folio || folioDeId(t.id)} - ${t.titulo} (${t.prioridad})\n`;
                 if (t.contexto) mensaje += `   ${t.contexto}\n`;
             });
+
+            mensaje += `
+🔗 Ver sistema:
+${APP_URL}`;
 
             await enviarTelegram(usuario.telegram_chat_id, mensaje);
             enviados++;
         }
 
         res.json({ enviados });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get("/recordatorios/retrasos", async (req, res) => {
-    try {
-        const usuarios = await pool.query(
-            "SELECT * FROM usuarios WHERE telegram_chat_id IS NOT NULL AND telegram_chat_id <> ''"
-        );
-
-        const hoy = new Date().toISOString().slice(0, 10);
-        let enviados = 0;
-
-        for (const usuario of usuarios.rows) {
-            const tareas = await consultarTareas(`
-                WHERE (
-                    tareas.usuario_id = $1
-                    OR EXISTS (
-                        SELECT 1
-                        FROM tarea_usuarios
-                        WHERE tarea_usuarios.tarea_id = tareas.id
-                        AND tarea_usuarios.usuario_id = $1
-                    )
-                )
-                AND tareas.fecha_limite < $2
-                AND tareas.estado <> 'completada'
-            `, [usuario.id, hoy]);
-
-            if (tareas.length === 0) continue;
-
-            let mensaje = `⚠️ ${usuario.nombre}, tienes tareas atrasadas:
-
-`;
-
-            tareas.forEach((t, i) => {
-                mensaje += `${i + 1}. ${t.titulo} - venció: ${t.fecha_limite}\n`;
-                if (t.contexto) mensaje += `   ${t.contexto}\n`;
-            });
-
-            await enviarTelegram(usuario.telegram_chat_id, mensaje);
-            enviados++;
-        }
-
-        res.json({ enviados });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/* NOTIFICACIONES */
-
-app.get("/notificaciones/pendientes", async (req, res) => {
-    try {
-        const resultado = await pool.query(
-            "SELECT * FROM notificaciones WHERE estado = 'pendiente' ORDER BY id ASC"
-        );
-
-        res.json(resultado.rows);
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.put("/notificaciones/:id/enviada", async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        await pool.query(
-            "UPDATE notificaciones SET estado = 'enviada' WHERE id = $1",
-            [id]
-        );
-
-        res.json({ mensaje: "Notificación marcada como enviada" });
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-/* RESPALDOS */
-
-app.get("/respaldo/json", async (req, res) => {
-    try {
-        const usuarios = await pool.query("SELECT * FROM usuarios ORDER BY id ASC");
-        const tareas = await consultarTareas();
-        const notificaciones = await pool.query(
-            "SELECT * FROM notificaciones ORDER BY id ASC"
-        );
-
-        const respaldo = {
-            generado_en: new Date().toISOString(),
-            usuarios: usuarios.rows,
-            tareas,
-            notificaciones: notificaciones.rows
-        };
-
-        const fecha = new Date().toISOString().slice(0, 10);
-
-        res.setHeader("Content-Type", "application/json");
-        res.setHeader(
-            "Content-Disposition",
-            `attachment; filename="respaldo_gestor_${fecha}.json"`
-        );
-
-        res.send(JSON.stringify(respaldo, null, 2));
-
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-app.get("/respaldo/csv", async (req, res) => {
-    try {
-        const tareas = await consultarTareas();
-
-        let csv = "id,titulo,contexto,tipo_asignacion,prioridad,estado,fecha_limite,usuarios\n";
-
-        tareas.forEach(t => {
-            csv += `"${t.id}","${t.titulo}","${t.contexto || ""}","${t.tipo_asignacion || "individual"}","${t.prioridad}","${t.estado}","${t.fecha_limite || ""}","${t.usuarios_asignados_nombres || t.usuario_nombre || "Sin asignar"}"\n`;
-        });
-
-        const fecha = new Date().toISOString().slice(0, 10);
-
-        res.setHeader("Content-Type", "text/csv");
-        res.setHeader(
-            "Content-Disposition",
-            `attachment; filename="tareas_${fecha}.csv"`
-        );
-
-        res.send(csv);
-
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -870,7 +912,6 @@ app.get("/recordatorios/cumplimiento-dia", async (req, res) => {
         let enviados = 0;
 
         for (const usuario of usuarios.rows) {
-
             const tareasHoy = await consultarTareas(`
                 WHERE (
                     tareas.usuario_id = $1
@@ -902,15 +943,11 @@ app.get("/recordatorios/cumplimiento-dia", async (req, res) => {
             const completadas = tareasHoy.filter(t => t.estado === "completada").length;
             const enProceso = tareasHoy.filter(t => t.estado === "en proceso").length;
             const pendientes = tareasHoy.filter(t => t.estado === "pendiente").length;
-
-            const cumplimiento =
-                total === 0 ? 0 : Math.round((completadas / total) * 100);
+            const cumplimiento = total === 0 ? 0 : Math.round((completadas / total) * 100);
 
             let mensaje = `📊 Cumplimiento del día
 
 Hola ${usuario.nombre}.
-
-Hoy tienes:
 
 📋 Total de hoy: ${total}
 ✅ Completadas: ${completadas}
@@ -927,18 +964,13 @@ Hoy tienes:
 `;
 
                 tareasRetrasadas.forEach((t, i) => {
-                    mensaje += `${i + 1}. ${t.titulo}
+                    mensaje += `${i + 1}. ${t.folio || folioDeId(t.id)} - ${t.titulo}
 📅 Venció: ${t.fecha_limite}
 📌 Estado: ${t.estado}
 `;
 
-                    if (t.contexto) {
-                        mensaje += `📖 ${t.contexto}
-`;
-                    }
-
-                    mensaje += `
-`;
+                    if (t.contexto) mensaje += `📖 ${t.contexto}\n`;
+                    mensaje += `\n`;
                 });
             } else {
                 mensaje += `✅ No tienes tareas retrasadas.
@@ -954,10 +986,71 @@ ${APP_URL}`;
         }
 
         res.json({
-            mensaje: "Cumplimiento enviado con tareas retrasadas",
+            mensaje: "Cumplimiento enviado con retrasos",
             enviados
         });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
+/* RESPALDOS */
+
+app.get("/respaldo/json", async (req, res) => {
+    try {
+        const usuarios = await pool.query("SELECT * FROM usuarios ORDER BY id ASC");
+        const tareas = await consultarTareas();
+        const comentarios = await pool.query("SELECT * FROM comentarios_tareas ORDER BY id ASC");
+
+        let notificaciones = { rows: [] };
+
+        try {
+            notificaciones = await pool.query(
+                "SELECT * FROM notificaciones ORDER BY id ASC"
+            );
+        } catch (error) {}
+
+        const respaldo = {
+            generado_en: new Date().toISOString(),
+            usuarios: usuarios.rows,
+            tareas,
+            comentarios: comentarios.rows,
+            notificaciones: notificaciones.rows
+        };
+
+        const fecha = new Date().toISOString().slice(0, 10);
+
+        res.setHeader("Content-Type", "application/json");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="respaldo_gestor_${fecha}.json"`
+        );
+
+        res.send(JSON.stringify(respaldo, null, 2));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get("/respaldo/csv", async (req, res) => {
+    try {
+        const tareas = await consultarTareas();
+
+        let csv = "id,folio,titulo,contexto,tipo_asignacion,prioridad,estado,fecha_limite,usuarios\n";
+
+        tareas.forEach(t => {
+            csv += `"${t.id}","${t.folio || folioDeId(t.id)}","${t.titulo}","${t.contexto || ""}","${t.tipo_asignacion || "individual"}","${t.prioridad}","${t.estado}","${t.fecha_limite || ""}","${t.usuarios_asignados_nombres || t.usuario_nombre || "Sin asignar"}"\n`;
+        });
+
+        const fecha = new Date().toISOString().slice(0, 10);
+
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader(
+            "Content-Disposition",
+            `attachment; filename="tareas_${fecha}.csv"`
+        );
+
+        res.send(csv);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

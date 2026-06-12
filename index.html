@@ -58,6 +58,7 @@ button{
 .btn-success{ background:#16a34a; }
 .btn-secondary{ background:#475569; }
 .btn-warning{ background:#f59e0b; color:#111; }
+.btn-light{ background:#e5e7eb; color:#111; }
 
 .tarea{
     background:white;
@@ -115,6 +116,22 @@ button{
     white-space:pre-wrap;
 }
 
+.comentarios-box{
+    margin-top:12px;
+    padding:10px;
+    background:#fafafa;
+    border-radius:12px;
+    border:1px solid #e5e7eb;
+}
+
+.comentario{
+    background:white;
+    border-radius:10px;
+    padding:10px;
+    margin-top:8px;
+    border:1px solid #e5e7eb;
+}
+
 hr{
     border:none;
     border-top:1px solid #e5e7eb;
@@ -137,6 +154,79 @@ hr{
 
 .multi-select{
     height:150px;
+}
+
+.folio{
+    font-weight:bold;
+    color:#2563eb;
+    font-size:14px;
+    margin-bottom:8px;
+}
+
+/* DISEÑO WEB PARA COMPUTADORA */
+@media (min-width: 900px){
+    .app{
+        max-width:1200px;
+        padding:25px;
+    }
+
+    #appPrincipal{
+        display:grid;
+        grid-template-columns:280px 1fr;
+        gap:20px;
+        align-items:start;
+    }
+
+    #appPrincipal > .card{
+        position:sticky;
+        top:20px;
+    }
+
+    #moduloMiPanel,
+    #moduloEquipo{
+        grid-column:2;
+    }
+
+    #moduloMiPanel{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:20px;
+    }
+
+    #moduloMiPanel > .card,
+    #moduloMiPanel > h3,
+    #moduloMiPanel > div{
+        grid-column:auto;
+    }
+
+    #misPendientes,
+    #misTareas{
+        grid-column:1 / -1;
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:14px;
+    }
+
+    #listaTareasEquipo{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:14px;
+    }
+
+    #moduloEquipo{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+        gap:20px;
+    }
+
+    #listaTareasEquipo,
+    #moduloEquipo h3:last-of-type{
+        grid-column:1 / -1;
+    }
+
+    .tarea{
+        margin-bottom:0;
+    }
 }
 </style>
 </head>
@@ -190,7 +280,6 @@ hr{
             <h3>➕ Nueva tarea</h3>
 
             <input id="titulo" type="text" placeholder="Escribe la tarea">
-
             <textarea id="contexto" placeholder="Contexto o descripción de la tarea"></textarea>
 
             <select id="prioridad">
@@ -210,7 +299,7 @@ hr{
             <select id="usuariosAsignados" multiple class="multi-select"></select>
 
             <div class="small-text">
-                En celular puedes mantener presionado o tocar varios usuarios según tu navegador.
+                Individual: crea una tarea por usuario. Equipo: una sola tarea compartida.
             </div>
 
             <button onclick="agregarTarea()">Guardar tarea</button>
@@ -258,7 +347,7 @@ hr{
         <div class="card">
             <h3>🔎 Revisar tareas</h3>
 
-            <input type="text" id="buscador" placeholder="Buscar tarea..." onkeyup="cargarTareasEquipo()">
+            <input type="text" id="buscador" placeholder="Buscar tarea o folio..." onkeyup="cargarTareasEquipo()">
 
             <select id="filtroEstado" onchange="cargarTareasEquipo()">
                 <option value="todas">Todas</option>
@@ -467,7 +556,8 @@ async function agregarTarea(){
             prioridad,
             fechaLimite,
             usuarioIds,
-            tipoAsignacion
+            tipoAsignacion,
+            usuarioActualId: usuarioActual.id
         })
     });
 
@@ -505,7 +595,8 @@ async function actualizarTarea(id){
             estado,
             fechaLimite,
             usuarioIds,
-            tipoAsignacion
+            tipoAsignacion,
+            usuarioActualId: usuarioActual.id
         })
     });
 
@@ -606,7 +697,8 @@ async function cargarTareasEquipo(){
     if(textoBusqueda){
         tareasFiltradas = tareasFiltradas.filter(t =>
             (t.titulo || "").toLowerCase().includes(textoBusqueda) ||
-            (t.contexto || "").toLowerCase().includes(textoBusqueda)
+            (t.contexto || "").toLowerCase().includes(textoBusqueda) ||
+            (t.folio || "").toLowerCase().includes(textoBusqueda)
         );
     }
 
@@ -636,6 +728,47 @@ function obtenerIdsAsignados(tarea){
     }
 
     return ids;
+}
+
+async function cargarComentarios(tareaId){
+    const contenedor = document.getElementById(`comentarios-${tareaId}`);
+    const respuesta = await fetch(`/tareas/${tareaId}/comentarios`);
+    const comentarios = await respuesta.json();
+
+    if(comentarios.length === 0){
+        contenedor.innerHTML = `<p class="small-text">Sin comentarios.</p>`;
+        return;
+    }
+
+    contenedor.innerHTML = comentarios.map(c => `
+        <div class="comentario">
+            <strong>${c.usuario_nombre || "Usuario"}</strong><br>
+            ${c.comentario}<br>
+            <span class="small-text">${new Date(c.creado_en).toLocaleString()}</span>
+        </div>
+    `).join("");
+}
+
+async function agregarComentario(tareaId){
+    const campo = document.getElementById(`nuevo-comentario-${tareaId}`);
+    const comentario = campo.value.trim();
+
+    if(!comentario){
+        alert("Escribe un comentario");
+        return;
+    }
+
+    await fetch(`/tareas/${tareaId}/comentarios`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({
+            usuarioActualId: usuarioActual.id,
+            comentario
+        })
+    });
+
+    campo.value = "";
+    await cargarComentarios(tareaId);
 }
 
 function pintarTareas(tareas, contenedorId){
@@ -677,6 +810,8 @@ function pintarTareas(tareas, contenedorId){
         });
 
         div.innerHTML = `
+            <div class="folio">🧾 ${tarea.folio || "Sin folio"}</div>
+
             <input id="titulo-${tarea.id}" value="${tarea.titulo || ""}">
 
             <textarea id="contexto-${tarea.id}" placeholder="Contexto de la tarea">${tarea.contexto || ""}</textarea>
@@ -724,9 +859,22 @@ function pintarTareas(tareas, contenedorId){
             <button class="btn-danger" onclick="eliminarTarea(${tarea.id})">
                 Eliminar
             </button>
+
+            <div class="comentarios-box">
+                <strong>💬 Comentarios</strong>
+                <div id="comentarios-${tarea.id}">
+                    <p class="small-text">Cargando comentarios...</p>
+                </div>
+
+                <textarea id="nuevo-comentario-${tarea.id}" placeholder="Escribe un comentario..."></textarea>
+                <button class="btn-secondary" onclick="agregarComentario(${tarea.id})">
+                    Agregar comentario
+                </button>
+            </div>
         `;
 
         lista.appendChild(div);
+        cargarComentarios(tarea.id);
     });
 
     const params = new URLSearchParams(window.location.search);
